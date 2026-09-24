@@ -1,0 +1,726 @@
+/* 全局样式表,定义登录页、仓库列表、聊天面板、Markdown内容、代码块和闪烁光标等所有页面的外观。 */
+
+/* ============================================================
+ * index.css —— RepoTalk 全局样式表
+ * 作用:所有组件的 className 都在这里落地,组件只管结构,本文件只管外观。
+ * 组织方式:
+ * 1) :root 定义设计变量(颜色/圆角/阴影),换主题只改这一处
+ * 2) 全局重置 -> 登录页 -> 通用页面骨架 -> 仓库列表 -> 仓库详情 -> 聊天面板
+ * 3) 带「难点」标记的地方是容易踩坑的,重点看
+ * ============================================================ */
+
+/* ---------- 1. 设计变量 ---------- */
+:root {
+  --bg: #f5f7fa;
+  /* 页面底色 */
+  --card: #ffffff;
+  /* 卡片底色 */
+  --border: #e5e7eb;
+  /* 描边色 */
+  --text: #1f2937;
+  /* 主文字 */
+  --muted: #6b7280;
+  /* 次要文字(提示语/时间/说明) */
+  --primary: #2563eb;
+  /* 主色:按钮/链接/焦点 */
+  --primary-dark: #1d4ed8;
+  /* 主色按下态 */
+  --danger: #dc2626;
+  /* 错误红 */
+  --radius: 10px;
+  /* 统一圆角 */
+  --shadow: 0 2px 10px rgba(16, 24, 40, .08);
+  --code-bg: #24292e;
+  /* shiki github-dark 主题底色,两者要一致 */
+}
+
+/* ---------- 2. 全局重置 ---------- */
+* {
+  box-sizing: border-box
+}
+
+/* 让 width 包含 padding/border,布局算尺寸不翻车 */
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  /* Mac 下字体更细腻 */
+}
+
+/* 让按钮/输入框继承 body 字体,否则浏览器会给它们默认的等宽小字体 */
+button,
+input,
+textarea {
+  font: inherit;
+  color: inherit
+}
+
+button {
+  cursor: pointer
+}
+
+a {
+  color: var(--primary)
+}
+
+/* 统一输入框外观:三个页面都用这套 */
+input,
+textarea {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+
+/* 焦点态:边框变主色 + 一圈淡蓝光晕,用户能看清当前在哪个输入框 */
+input:focus,
+textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, .15);
+}
+
+/* 禁用态:变灰 + 禁止点击,给"提交中/请求中"用 */
+input:disabled,
+textarea:disabled {
+  background: #f3f4f6;
+  cursor: not-allowed
+}
+
+button:disabled {
+  opacity: .55;
+  cursor: not-allowed
+}
+
+/* ---------- 3. 登录页 ---------- */
+.login-container {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  /* grid 的居中一行搞定,比 flex 少写两行 */
+  background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%);
+  padding: 24px;
+}
+
+.login-box {
+  width: 100%;
+  max-width: 360px;
+  background: var(--card);
+  border-radius: 16px;
+  padding: 36px 32px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .22);
+  text-align: center;
+}
+
+.login-box h1 {
+  margin: 0 0 6px;
+  font-size: 26px;
+  letter-spacing: .5px
+}
+
+.subtitle {
+  margin: 0 0 26px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* 登录表单:纵向排列 + 元素间距 */
+.login-box form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px
+}
+
+.login-box input {
+  width: 100%
+}
+
+.login-box button[type="submit"] {
+  padding: 11px;
+  border: none;
+  border-radius: 8px;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+  transition: background .15s;
+}
+
+.login-box button[type="submit"]:hover:not(:disabled) {
+  background: var(--primary-dark)
+}
+
+/* .error 与 .error-text 都是红字提示,合并成一条规则;margin-top 用小间距贴身显示 */
+.error,
+.error-text {
+  color: var(--danger);
+  font-size: 13px;
+  margin-top: 8px;
+  text-align: left;
+}
+
+/* ---------- 4. 通用页面骨架(列表页/详情页共用) ---------- */
+
+/* 难点:这里必须用定高(height)而不是 min-height。
+   聊天面板要靠 flex:1 撑满剩余空间、内部消息区再自己滚动,
+   如果外层高度是"最小高度",内容一多页面就会被撑高,
+   消息区永远滚不到底(会跟着页面一起变长)。
+   overflow:hidden 同时兜住意外溢出的情况。 */
+.page {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 移动端:100vh 会被浏览器地址栏/软键盘撑破,100dvh 是"动态可视高度",优先用它 */
+@supports (height:100dvh) {
+  .page {
+    height: 100dvh
+  }
+}
+
+.header {
+  flex: 0 0 auto;
+  /* 顶栏不参与伸缩,固定自身高度 */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 24px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 20px
+}
+
+/* 难点:content 是"剩余空间"的容器,必须同时写 flex:1 + min-height:0。
+   flex 默认 min-height:auto,子元素想收缩时会被内容顶住,
+   少写 min-height:0 的话,聊天面板的 messages 区就滚不动了(经典 flex 滚动失灵 bug)。*/
+.content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  overflow-y: auto;
+  /* 列表页仓库多时,整体区域滚动 */
+}
+
+/* 顶栏按钮(返回列表/退出登录)共用 */
+.back-btn,
+.logout-btn {
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 13px;
+  transition: all .15s;
+}
+
+.back-btn:hover,
+.logout-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* ---------- 5. 仓库列表页 ---------- */
+.create-section,
+.repo-list-section {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow);
+}
+
+.create-section h2,
+.repo-list-section h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.create-form {
+  display: flex;
+  flex-wrap: wrap;
+  /* 窄屏时按钮自动换行 */
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.create-form input {
+  flex: 1 1 220px;
+  /* 可伸缩、基准 220px:两个输入框平分一行 */
+  min-width: 180px;
+}
+
+.create-form button {
+  flex: 0 0 auto;
+  padding: 10px 18px;
+  border: none;
+  border-radius: 8px;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+  transition: background .15s;
+}
+
+.create-form button:hover:not(:disabled) {
+  background: var(--primary-dark)
+}
+
+.repo-list {
+  list-style: none;
+  /* 去掉 <li> 自带的圆点 */
+  margin: 14px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.repo-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+
+.repo-item:hover {
+  border-color: var(--primary);
+  background: #f8fafc;
+  /* 悬停给一点点底色,提示"这一行可点" */
+}
+
+/* 难点:repo-info 必须写 min-width:0。
+   flex 子项的默认最小宽度是"内容宽度",长 URL 会把整行撑出屏幕;
+   min-width:0 允许它被压缩,下面的 repo-url 的 ellipsis 才会真正生效。*/
+.repo-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.repo-name {
+  font-weight: 600
+}
+
+.repo-url {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  /* 不换行 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* 超长显示"..." */
+}
+
+.repo-status {
+  flex: 0 0 auto;
+  /* 状态文字不参与压缩,四字必须完整显示 */
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* ---------- 6. 仓库详情页:进度区 ---------- */
+.progress-section {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  box-shadow: var(--shadow);
+  flex: 0 0 auto;
+  /* 进度条固定高度,不跟聊天面板抢空间 */
+}
+
+.progress-info {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.stage-label {
+  font-weight: 600;
+  font-size: 15px
+}
+
+.hint {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* ---------- 7. 聊天面板 ---------- */
+
+/* 难点:chat-panel 是"填满剩余高度"的列容器,
+   flex:1 + min-height:0 两个都要,道理和 .content 相同。
+   少 min-height:0,messages 的 overflow-y 就会失效。*/
+.chat-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 16px;
+  box-shadow: var(--shadow);
+}
+
+/* 消息滚动区:唯一允许纵向滚动的层 */
+.messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 一条消息 = 角色标签 + 气泡体 */
+.message {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+  align-items: flex-start;
+}
+
+/* 用户消息整体镜像排列:气泡贴右、标签贴左,聊天软件通用视觉 */
+.message.user {
+  flex-direction: row-reverse
+}
+
+.message-role {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: var(--primary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* 难点:气泡限制最大宽度(80%),否则长代码块会把页面横向撑爆;
+   同时 min-width:0 允许气泡在 flex 里被压缩。*/
+.message-body {
+  max-width: 80%;
+  min-width: 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.7;
+  word-break: break-word;
+  /* 超长英文标识符/URL 也能断行 */
+}
+
+.message.user .message-body {
+  background: #e8f0fe;
+  border-top-right-radius: 4px;
+  /* 贴角做小,模拟气泡"尖"指向发送者 */
+}
+
+.message.assistant .message-body {
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-top-left-radius: 4px;
+}
+
+/* 难点:用户输入必须保留换行。
+   默认 HTML 会把连续换行/空格压成一个,多行问题会糊成一行;
+   pre-wrap 保留换行与空格,同时仍会自动折行。*/
+.plain-text {
+  white-space: pre-wrap;
+}
+
+/* ---------- 8. 引用来源卡片 ---------- */
+.sources {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  background: #fff;
+  border-left: 3px solid var(--primary);
+  /* 左侧色条,一眼识别是"引用"而不是正文 */
+  border-radius: 6px;
+}
+
+.sources-title {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* details/summary 是浏览器原生折叠面板,这里只做外观,不需要任何 JS */
+/* summary改为flex布局:左路径右链接,两端对齐 */
+.source-card summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: #374151;
+  padding: 3px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* 自绘展开箭头:summary改成flex后浏览器原生的三角标记会丢失,自己画一个 */
+.source-card summary::before{
+  content:'▸';
+  flex:0 0 auto;
+  color:var(--muted);
+  transition:transform .15s;
+}
+/* [open]:details展开时浏览器自动加的属性选择器,箭头转90度 */
+.source-card[open] summary::before{transform:rotate(90deg)}
+
+/* 路径文本:允许收缩+断行,长路径不把链接挤出卡片 */
+.source-path{
+  flex:1;            /* 占满中间,把箭头和链接推到两端 */
+  min-width:0;
+  word-break:break-all;
+}
+
+/* 跳转链接:不收缩、不换行,hover给下划线提示可点 */
+.source-link {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  color: var(--primary);
+  text-decoration: none;
+  font-size: 12px;
+}
+
+.source-link:hover {
+  text-decoration: underline
+}
+
+.source-preview {
+  margin: 6px 0 0;
+  padding: 8px;
+  background: #f3f4f6;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 200px;
+  /* 摘要最长 200px 高,超高滚动 */
+  overflow: auto;
+  white-space: pre-wrap;
+  /* 代码摘要保留原始缩进与换行 */
+  word-break: break-all;
+}
+
+/* ---------- 9. Markdown 正文样式 ---------- */
+/* react-markdown 渲染出来的是原生 HTML,没有额外包裹层,只能按标签选择器打样式 */
+.message-body h1,
+.message-body h2,
+.message-body h3 {
+  margin: 16px 0 8px;
+  line-height: 1.4;
+}
+
+.message-body h1 {
+  font-size: 20px
+}
+
+.message-body h2 {
+  font-size: 17px
+}
+
+.message-body h3 {
+  font-size: 15px
+}
+
+.message-body p {
+  margin: 8px 0
+}
+
+.message-body ul,
+.message-body ol {
+  margin: 8px 0;
+  padding-left: 22px
+}
+
+.message-body blockquote {
+  margin: 8px 0;
+  padding: 4px 12px;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+}
+
+/* 表格是 GFM 扩展(remark-gfm 打开才支持),不加 border-collapse 会变成双线框 */
+.message-body table {
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 13px;
+  display: block;
+  /* 表格过长时允许横向滚动 */
+  overflow-x: auto;
+}
+
+.message-body th,
+.message-body td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.message-body img {
+  max-width: 100%;
+  border-radius: 6px
+}
+
+/* 行内代码(反引号包住的短片段):灰底小圆角 */
+.message-body code {
+  background: rgba(0, 0, 0, .06);
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+}
+
+/* 流式生成阶段的代码块(默认渲染器,还没换 shiki):浅色底 + 横向滚动 */
+.message-body pre {
+  margin: 10px 0;
+  padding: 12px;
+  background: #f6f8fa;
+  border-radius: 8px;
+  overflow-x: auto;
+  /* 长行横向滚,不要撑宽气泡 */
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.message-body pre code {
+  background: none;
+  padding: 0
+}
+
+/* 代码块内不再叠加行内样式 */
+
+/* ---------- 10. shiki 高亮代码块 ---------- */
+/* CodeBlock 组件会渲染成两种情况:
+   高亮完成 -> div.code-block 里塞 shiki 的 HTML(shiki 自带 <pre>)
+   还没完成 -> pre.code-block 直接铺纯文本
+   所以 padding 放在 .code-block 上,内层 <pre> 清零,两种形态都不重复留白。*/
+.code-block {
+  margin: 12px 0;
+  padding: 16px;
+  background: var(--code-bg);
+  /* 与 shiki github-dark 的底色保持一致,避免闪色 */
+  color: #e1e4e8;
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.code-block pre {
+  margin: 0;
+  /* shiki 的 <pre> 自带 margin 会把圆角撑破 */
+  padding: 0;
+  overflow-x: visible;
+}
+
+/* ---------- 11. 流式光标 / 状态提示 / 输入区 ---------- */
+
+/* 打字机光标:1 秒一次"亮-灭",steps(2)让切换是硬跳变而不是渐隐,更像真终端 */
+.cursor {
+  display: inline-block;
+  width: 8px;
+  animation: blink 1s steps(2, start) infinite;
+}
+
+@keyframes blink {
+
+  0%,
+  49% {
+    opacity: 1
+  }
+
+  50%,
+  100% {
+    opacity: 0
+  }
+}
+
+.status-text {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.input-area {
+  flex: 0 0 auto;
+  /* 输入区固定高度,始终可见 */
+  display: flex;
+  align-items: flex-end;
+  /* 多行输入时按钮对齐底部,视觉更稳 */
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+/* 难点:resize:none 关掉浏览器右下角的拖拽手柄。
+   不关的话用户一拖 textarea,聊天面板布局就被撑乱。*/
+.input-area textarea {
+  flex: 1;
+  resize: none;
+  min-height: 52px;
+  max-height: 120px;
+  /* 超过后内部滚动,不无限长高 */
+  overflow-y: auto;
+  line-height: 1.5;
+  font-size: 14px;
+}
+
+.input-area button {
+  flex: 0 0 auto;
+  padding: 11px 22px;
+  border: none;
+  border-radius: 8px;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+  transition: background .15s;
+}
+
+.input-area button:hover:not(:disabled) {
+  background: var(--primary-dark)
+}
+
+/* ---------- 12. 窄屏适配 ---------- */
+@media (max-width:640px) {
+  .header {
+    padding: 12px 16px
+  }
+
+  .content {
+    padding: 14px;
+    gap: 12px
+  }
+
+  .create-section,
+  .repo-list-section {
+    padding: 16px
+  }
+
+  /* 小屏气泡放宽到 92%:角色标签和气泡挤在一行时,80% 会让正文太窄 */
+  .message-body {
+    max-width: 92%
+  }
+
+  .input-area {
+    padding-top: 10px
+  }
+}

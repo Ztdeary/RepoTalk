@@ -1,0 +1,12 @@
+// 根TS配置,自身不编译文件,只通过references引用下面两个子配置实现app与node环境分开编译。
+{
+  // files:[]:这个文件本身不直接编译任何文件 
+  // 它的作用是作为"项目根配置",通过references引用其他tsconfig
+  "files": [],
+  // references:引用子配置文件,实现编译任务的拆分 
+  // 这样app代码和node环境代码(如vite.config.ts)可以用不同的编译选项
+  "references":[
+    {"path":"./tsconfig.app.json"},
+    {"path":"./tsconfig.node.json"}
+  ]
+}

@@ -1,0 +1,43 @@
+// 定义src/业务代码的编译规则(React JSX、ES2023、DOM 类型、严格检查)。
+{
+  "compilerOptions": {
+    // tsBuildInfoFile:增量编译信息文件的存储位置,加快二次编译速度
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    // target:编译目标 ES 版本,es2023 支持现代浏览器
+    "target": "es2023",
+    // lib:编译时可用的全局 API 类型
+    // ES2023:ES2023 的 JS 内置对象类型
+    // DOM:浏览器 DOM API 类型(document、window 等)
+    "lib": ["ES2023", "DOM"],
+    // module:模块系统,esnext 支持最新的 import/export 语法
+    "module": "esnext",
+    // types:额外包含的类型声明包,vite/client 提供 import.meta.env 等类型
+    "types": ["vite/client"],
+    // allowArbitraryExtensions:允许导入带任意扩展名的文件
+    "allowArbitraryExtensions": true,
+    // skipLibCheck:true:跳过 .d.ts 类型声明文件的检查,加快编译
+    "skipLibCheck": true,
+    // moduleResolution:模块解析策略,bundler 适配 Vite/Webpack 等打包工具
+    "moduleResolution": "bundler",
+    // allowImportingTsExtensions:允许 import 时写 .ts/.tsx 扩展名
+    "allowImportingTsExtensions": true,
+    // verbatimModuleSyntax:禁止类型-only 导入被错误地编译进 JS
+    "verbatimModuleSyntax": true,
+    // moduleDetection:force:强制每个文件都当作模块处理
+    "moduleDetection": "force",
+    // noEmit:true:不输出编译后的 JS 文件(由 Vite 负责打包)
+    "noEmit": true,
+    // jsx:react-jsx:使用 React 17+ 的新 JSX 转换,不需要手动 import React
+    "jsx": "react-jsx",
+    // noUnusedLocals:true:有未使用的局部变量时报错
+    "noUnusedLocals": true,
+    // noUnusedParameters:true:有未使用的函数参数时报错
+    "noUnusedParameters": true,
+    // erasableSyntaxOnly:true:只允许可擦除的类型语法
+    "erasableSyntaxOnly": true,
+    // noFallthroughCasesInSwitch:true:switch 的 case 不写 break 时报错
+    "noFallthroughCasesInSwitch": true
+  },
+  // include:只编译 src 目录下的文件
+  "include": ["src"]
+}

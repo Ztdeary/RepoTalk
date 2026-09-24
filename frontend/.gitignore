@@ -1,0 +1,15 @@
+# 忽略依赖与构建产物,避免污染仓库
+# 注意:gitignore的注释必须独占一行,写在规则后面会被当成规则的一部分,导致规则失效
+node_modules
+dist
+dist-ssr
+*.local
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

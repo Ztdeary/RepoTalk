@@ -1,0 +1,40 @@
+# Python 相关
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+*.egg-info/
+.eggs/
+
+# 环境与密钥
+.env
+.env.*
+!.env.example
+
+# 测试与缓存
+tests/
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# 文档
+*.md
+!README.md
+
+# 操作系统
+.DS_Store
+Thumbs.db

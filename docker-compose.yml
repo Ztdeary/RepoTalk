@@ -1,0 +1,101 @@
+services:
+  # ---- 数据库:PostgreSQL + pgvector ----
+  db:
+    # 关键:必须用带 pgvector 的官方镜像,普通 postgres 镜像没有向量能力
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: repotalk
+      POSTGRES_PASSWORD: repotalk
+      POSTGRES_DB: repotalk
+    ports:
+      - "5433:5432" # 左=宿主机,右=容器;端口冲突时改左边
+    volumes:
+      - pgdata:/var/lib/postgresql/data # 数据持久化,容器删了数据还在
+    healthcheck:
+      # 健康检查:用 pg_isready 探活
+      test: [ "CMD-SHELL", "pg_isready -U repotalk -d repotalk" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ---- 缓存:Redis ----
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      # 健康检查:用 redis-cli ping
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ---- 后端:FastAPI ----
+  backend:
+    build:
+      context: ./backend # context:构建上下文目录(backend/)
+      dockerfile: Dockerfile # dockerfile:Dockerfile 文件名
+    env_file:
+      - ./backend/.env # env_file:从 .env 文件加载环境变量
+    environment:
+      # 覆盖 .env 里的连接地址,用 Docker 内部服务名
+      DATABASE_URL: postgresql+psycopg://repotalk:repotalk@db:5432/repotalk
+      # db:5432:用服务名 db 做主机名,容器内端口 5432(不是宿主机的 5433)
+      REDIS_URL: redis://redis:6379/0
+      # redis:6379:用服务名 redis 做主机名
+    ports:
+      - "8000:8000" # 暴露后端端口(调试用,生产可只让 nginx 访问)
+    depends_on:
+      # depends_on:等 db 和 redis 健康后再启动 backend
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped # 容器异常退出时自动重启(除非手动 stop)
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s # 启动后 15 秒内失败不算(给应用初始化时间)
+
+  # ---- 解析 worker:消费 Redis 队列里的仓库解析任务 ----
+  worker:
+    build:
+      context: ./backend      # 复用后端镜像,不用重复构建
+      dockerfile: Dockerfile
+    command: ["arq", "app.workers.parse_worker.WorkerSettings"]
+    # 覆盖镜像默认的 uvicorn 启动命令,改跑 arq worker
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://repotalk:repotalk@db:5432/repotalk
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      # 关闭健康探针:镜像默认的探针请求 uvicorn 的 /health,
+      # 但 worker 跑的是 arq,没有 HTTP 服务,不关掉会被误判为 unhealthy
+      disable: true
+
+  # ---- 前端:Nginx 托管静态文件 + API 反代 ----
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80" # 80 端口对外提供服务
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      # 挂载自定义 nginx 配置,:ro 表示只读
+      - ./frontend/dist:/usr/share/nginx/html:ro
+      # 挂载前端构建产物到 Nginx 默认静态目录
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

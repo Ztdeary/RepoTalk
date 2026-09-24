@@ -1,0 +1,15 @@
+﻿__pycache__/
+*.pyc
+.venv/
+venv/
+backend/.env
+.env
+.env.local
+.idea/
+.vscode/
+.DS_Store
+node_modules/
+frontend/dist/
+tests/.cache/
+*.log
+README.md.bak

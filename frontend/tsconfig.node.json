@@ -1,0 +1,18 @@
+// 定义vite.config.ts这个Node环境配置文件的编译规则(不含DOM 类型)。
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
+    "target": "es2023",
+    // 注意:这里没有 DOM,因为 vite.config.ts 运行在 Node 环境,不需要浏览器类型
+    "lib": ["ES2023"],
+    "module": "esnext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true
+  },
+  // 只编译 vite.config.ts
+  "include": ["vite.config.ts"]
+}

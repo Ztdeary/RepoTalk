@@ -1,0 +1,330 @@
+import re # 正则表达式模块
+import jieba # 中文分词模块
+import httpx # 导入httpx模块用于调用硅基流动重排模型
+import json # 标准库模块名，用于序列化/反序列化JSON字符串
+import redis as _redis # 导入redis模块用于连接Redis数据库，_redis表示私有模块名，避免被外部访问
+
+from langchain_core.documents import Document # 重建BM25时要Document对象
+from app.core.config import settings # 导入配置模块用于获取重排序模型路径
+from langchain_community.retrievers import BM25Retriever # 导入BM25Retriever类
+
+CANDIDATE_K=80 # 每路初检多少条候选(加60%,粗筛多捞候选避免好块被挤掉)
+RERANK_TOP_N=6 # 重排后最终喂给LLM的条数(加50%,直接提高context_recall)
+
+# 预编译正则：匹配编程语言标识符（snake_case / CamelCase 整词）
+_IDENT_RE=re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+# [A-Za-z] 表示匹配大写字母或小写字母
+# [0-9] 表示匹配数字
+# _ 表示匹配下划线
+# 开头_下划线表示数据私有，避免被外部访问
+# re.compile()表示预编译正则表达式，提高匹配效率，即先编译正则表达式，再匹配文本
+# * 表示匹配0个或多个前面的字符
+
+# 定义_tokenize分词器函数
+def _tokenize(text:str)->list[str]:
+  """BM25分词器:标识符整词保留,同时拆分驼峰命名,中文交给jieba。"""
+  text=re.sub(r'([a-z])([A-Z])',r'\1 \2',text)
+  # 把驼峰命名拆分成多个单词,如getUserId->get user id
+  # re.sub()表示替换所有匹配的子字符串，返回新的字符串
+  # \1 表示匹配到的第一个子字符串, \2 表示匹配到的第二个子字符串
+  tokens=[w.lower() for w in _IDENT_RE.findall(text)] 
+  # 代码标识符：整词、统一小写
+  # w.lower()表示将每个匹配到的标识符转换为小写
+  # findall()表示返回所有匹配的子字符串列表
+  no_code=re.sub(r"[A-Za-z0-9_]+"," ",text) 
+  # 把文本中的英文/数字/下划线替换成空格:" "，剩下的主要是中文
+  # re.sub()表示替换所有匹配的子字符串，返回新的字符串
+  tokens.extend(t for t in jieba.lcut(no_code) if t.strip())
+  # jieba.lcut()表示将文本进行中文分词，返回分词结果的列表(只保留中文分词)
+  # t.strip()表示去掉每个分词结果的首尾空格,非空即为真
+  # tokens.extend()表示将分词结果添加到tokens列表中
+  # 设计目的:代码问答的查询是「中文 + 标识符」混合体,
+  # 比如「get_user_by_id 在哪定义」。
+  # 一套分词策略吃不下两种内容,
+  # 所以英文走正则整词、中文走jieba,拼起来两头兼顾。
+  return tokens
+# rrf_fuse融合函数
+def rrf_fuse(ranked_list:list[list],k:int=60)->list: 
+    # list[list]是因为后面传入的两条路的检索结果都是列表,每个元素是一个Document对象
+    # k=60的作用:压平曲线,避免排名过低的文档对融合结果的影响过大
+    """RRF(Reciprocal Rank Fusion)倒数排名融合。
+    为什么用它?向量的分数(0~1 余弦)和 BM25 的分数（无上界整数）
+    根本没法直接相加。RRF 只看排名、不看分数，天然解决了量纲不一致。
+    公式:score = Σ 1/(k + rank),k=60 是原论文经验值。"""
+    scores={} # key->累计融合分
+    first_seen={} #key->第一次见到的那个Document(两路重复命中时只留一份)
+    for lst in ranked_list: 
+      # 遍历两条路的检索结果
+      for rank,item in enumerate(lst,start=1):
+      # start=1表示从排名1开始计数,而不是从0开始，例如
+      # 0-甲 -> 1-甲
+      # 1-乙 -> 2-乙，符合人类看排名的习惯
+        key=item.metadata.get("file_path")+":"+str(item.metadata.get("start_line"))
+        # 每个Document的key是文件路径+起始行号,确保唯一性
+        scores[key]=scores.get(key,0)+1/(k+rank)
+        # 累计融合分,1/(k+rank)是RRF公式
+        # get(key,0)表示如果key不存在,则返回0,避免KeyError
+        # 每根据key找到一次,就累计一次融合分，并加入scores字典
+        first_seen.setdefault(key,item) 
+        # 只在该key第一次出现时记录文档对象,实现去重:两路都命中的块只保留一份。
+        # setdefault()表示如果key不存在,则赋值为item,否则不改变item
+    ranked=sorted(scores.items(),key=lambda x:x[1],reverse=True)
+    # scores.items()返回一个字典视图,包含所有键值对
+    # sorted()对键值对进行从高到低排序,返回一个列表,每个元素是一个元组(key,score)
+    # x[1]表示取每个元组的第二个元素(即score)
+    # reverse=True表示按降序排序,即从高到低
+    return [(first_seen[key],score) for key,score in ranked]
+    # 遍历排序后的列表,返回一个列表,每个元素是一个元组[文档对象,融合分]
+    # first_seen[key]表示根据key获取第一次见到的那个Document对象
+    # score表示当前融合分
+
+# build_bm25建BM25索引
+def build_bm25(chunks:list[dict])->BM25Retriever:
+    """用AST切分产物(content+metadata字典列表)在内存里建BM25索引。
+    把symbol拼进索引文本,让BM25能匹配到类名/函数名本身。"""
+    bm25=BM25Retriever.from_texts(
+      # BM25Retriever类的from_texts方法,用于从文本列表构建BM25索引
+      # texts参数是文本列表,每个元素是一个字符串,用于构建索引
+      # metadata参数是元数据列表,每个元素是一个字典,用于存储每个文本的元数据
+      texts=[f"{c['metadata'].get('file_path','')} {c['metadata']['symbol']} {c['content']}" for c in chunks],
+      # 把文件路径、符号symbol、内容拼进索引文本,让BM25能匹配到类名/函数名本身
+      metadatas=[c["metadata"] for c in chunks], 
+      preprocess_func=_tokenize, 
+      # 告诉BM25Retriever使用_tokenize分词器,因为BM25默认是空格分词
+    )
+    bm25.k=CANDIDATE_K # 默认只返回4条,改成CANDIDATE_K(当前50条)
+    return bm25
+    # 返回BM25Retriever对象,用于后续检索
+
+# 定义rerank重排序函数
+def rerank(query:str,docs:list,top_n=RERANK_TOP_N)->list:
+    """调用硅基流动重排模型,按"query 与文档的真实相关性"对候选块精排出top_n。
+    
+    为什么需要rerank?
+    BM25和向量检索各有偏科:
+    - BM25强于关键词匹配(精确命中变量名、函数名)
+    - 向量强于语义相似("登录"能匹配"sign in")
+    但两者都只是"粗排"——真正判定"哪个块最能回答这个问题"还得让Cross-Encoder重排模型来做。
+    它把query和每个文档拼成一对,逐对打分,精度远高于双塔的向量相似度。
+    
+    截断策略:每个文档只送前1400字符(注释里之前写1500是笔误,代码以1400为准)。
+    为什么要截断?rerank API按token数计费,且单次请求有上限。
+    一个代码块动辄几千上万字符,全送进去既慢又贵,前1400字符通常已包含函数签名和核心逻辑,足够重排模型判断相关性。
+    
+    降级兜底:重排失败(HTTP错误/超时)时回退到RRF融合顺序取前top_n,保证问答链路不崩。
+    为什么降级用RRF顺序?RRF融合已经把两路排序的信息都综合了,是"没rerank情况下能拿到的最好排序"。"""
+    if not docs: # docs为空列表=RRF阶段就没找到任何相关文档,直接返回空,不用调API
+        return []
+    
+    # httpx.post:同步HTTP POST请求,往硅基流动的/v1/rerank端点发请求
+    # 为什么用httpx而不是requests?httpx支持http2、连接池更好,且项目里embedding已经用httpx了,统一依赖
+    resp=httpx.post(
+      f"{settings.embedding_base_url}/rerank",
+      # f-string拼URL:settings.embedding_base_url通常是"https://api.siliconflow.cn/v1"
+      # 拼完变成"https://api.siliconflow.cn/v1/rerank"——符合硅基流动兼容OpenAI风格的API路径
+      headers={"Authorization":f"Bearer {settings.embedding_api_key}"},
+      # HTTP请求头里必须带Authorization,格式是"Bearer " + API密钥字符串
+      # 这是OpenAI兼容API的通用认证方式,硅基流动/阿里云DashScope等都支持
+      json={
+        "model":settings.rerank_model, # 重排序模型名,从.env读,默认是BAAI/bge-reranker-v2-m3
+        "query":query, # 用户的原始问题,重排模型会拿它和每个文档配对打分
+        "documents":[
+          # 关键:给每个文档拼一个元数据前缀,格式="[文件: xxx 符号: yyy]\n 正文前1400字"
+          # 为什么要拼?纯正文LLM看不到"这个块来自哪个文件、是什么函数",可能把测试桩当成真实实现
+          # 截断[:2000]:控制token消耗,代码块前2000字符通常已包含函数签名和核心逻辑
+          f"[文件: {d.metadata.get('file_path')} 符号: {d.metadata.get('symbol')}]\n{d.page_content[:2000]}"
+          for d in docs
+        ],
+        "top_n":top_n, # 告诉rerank模型"我只想要相关性最高的前N条",API返回量更少更快
+      },
+      timeout=30, # 网络超时30秒。rerank是HTTP调用,比embedding慢(因为要逐对打分),给足30秒
+      # 所有跨网络调用必须带timeout——否则对端挂了会无限阻塞整个FastAPI事件循环
+    )
+    try:
+      resp.raise_for_status()
+      # httpx.Response.raise_for_status():如果HTTP状态码是4xx/5xx(比如401密钥失效、429限流、500服务挂了),
+      # 就抛httpx.HTTPStatusError异常。2xx(200~299)不抛,继续往下走。
+      # 为什么要try/except?rerank是精排环节,失败了不该让整个问答崩掉——降级返回RRF顺序就行。
+    except httpx.HTTPStatusError as e:
+      # 捕获所有HTTP错误状态码(401/429/500等)
+      # e.response.status_code:比如429就是被限流了,401就是API key无效
+      print(f"[rerank]重排失败(HTTP {e.response.status_code}),降级用RRF顺序")
+      # 降级方案:直接返回RRF融合后的docs前top_n条——这是没rerank时能拿到的最好排序
+      # 注意:docs此时是RRF排好序的,前top_n就是RRF认为最好的top_n
+      return docs[:top_n]
+    
+    # 正常路径:解析rerank响应JSON
+    # 硅基流动rerank API返回格式:{"results":[{"index":0,"score":0.95},...]}
+    # index:对应我们传入的documents数组的下标,score:相关性分数(越高越相关)
+    results=resp.json()["results"]
+    # resp.json():httpx内置方法,把响应体字符串按JSON解析成Python dict
+    # ["results"]:取出results数组,每个元素有index和score字段
+    
+    # 按index映射回原始docs,得到rerank排序后的文档列表
+    # results本身已按score降序排好(rerank模型会自动返回排好序的列表)
+    return [docs[r["index"]] for r in results]
+    # 列表推导式:遍历results中每个元素r,取r["index"],再用这个index从docs里取对应的Document对象
+    # 举例:results=[{index:5,score:0.9},{index:2,score:0.8}]
+    # 返回[docs[5], docs[2]]——rerank认为第6个文档最相关,第3个次之
+
+# hybrid_search混合检索
+def hybrid_search(question:str,store,bm25:BM25Retriever)->list:
+    """混合检索全流程:双路初检->RRF融合->重排精排。"""
+    # store是向量数据库,用于存储和检索向量
+    # bm25是BM25索引,用于快速检索相关文档
+    vec_docs=store.similarity_search(question,k=CANDIDATE_K)
+    # store.similarity_search()方法->pgvector按距离从小到大返回与之最相似的CANDIDATE_K条向量
+    kw_docs=bm25.invoke(question)
+    # bm25.invoke()方法->按BM25分从高到低返回，同样是排好序的。
+    print ( f"[hybrid] vec候选: {[d.metadata.get( 'symbol' ) for d in vec_docs]} " ) 
+    # 调试日志:打印vec阶段候选symbol,排查召回问题时使用
+    print ( f"[hybrid] kw候选: {[d.metadata.get( 'symbol' ) for d in kw_docs]} " )
+    # 调试日志:打印kw阶段候选symbol,排查召回问题时使用
+
+    # 第三路:符号精确召回
+    # 解决"高频词"问题:command 在tests里出现上百次,IDF被稀释,定义块进不了前50
+    # 做法:从query里抽标识符,直接按symbol字段过滤查库,绕开打分
+    ids=[i for i in _IDENT_RE.findall(question) if len(i)>=3]
+    # 从问题中提取长度>=3的标识符(短词如in/of无意义)
+    stop={"click","def","class","the","and","for","import","return","self","test"}
+    # 停用词:仓库名、语法关键字,按它们过滤要么查不到、要么噪音大
+    ids=[i for i in dict.fromkeys(ids) if i.lower() not in stop][:3]
+    # dict.fromkeys()去重,最多取3个,控制embedding调用次数
+    exact_docs=[]
+    for ident in ids:
+      # 同一符号在库里可能有两种symbol:普通块,和超长块(切分时加了" (large)"后缀)
+      # 真实实现往往就是那个超长块,两种都要查,否则只能捞到overload桩(函数体只有一个 ...)
+      for sym in (ident,f"{ident} (large)"):
+        try:
+          exact_docs.extend(store.similarity_search(question,k=12,filter={"symbol":sym}))
+          # filter={"symbol":sym}:只在symbol等于该符号名的块里做向量检索
+          # k=12:同一符号(如overload桩)可能有多条,给足12条
+        except Exception as e:
+          print(f"[hybrid] exact召回失败({sym}):{e}")
+          # 单路失败不影响主链路,继续用vec+bm25
+    print(f"[hybrid] exact候选:{[d.metadata.get('symbol') for d in exact_docs]}")
+    # 调试日志:确认到底捞到了哪些定义块
+
+    fused=rrf_fuse([vec_docs,kw_docs,exact_docs])
+    # 两路列表丢进RRF融合函数,对应list[list]的传参格式,进行融合去重+按融合分排序
+    if not fused: # 两路都没捞到,直接返回空,不拿空列表去调重排接口 return []
+        return []
+    # 精确匹配加成:query中提取标识符,symbol包含它的块额外加分
+    identifiers=re.findall(r'[A-Za-z_][A-Za-z0-9_]*',question)
+    # 从query中提取所有标识符,如get_user_by_id
+    boosted=[] # 存储额外加分的文档
+    for doc,score in fused: # 遍历融合后的文档列表
+      symbol=doc.metadata.get('symbol','') # 从文档元数据中提取symbol,默认值为空字符串
+      # 如果query中的标识符出现在symbol里(忽略大小写),额外加0.5分
+      if any(idf.lower() in symbol.lower() for idf in identifiers if len(idf)>2):
+        # len(idf)>2 表示只考虑长度大于2的标识符,避免匹配到单字符的标识符(如in,of等)
+        boosted.append((doc,score+1.0)) # 额外加分1.0
+      else:
+        boosted.append((doc,score)) # 没有额外加分
+    # 按加成后分数重排
+    boosted.sort(key=lambda x:x[1],reverse=True)
+
+    # 同(文件,符号)最多保留2条:避免重载桩(如4条command)占满候选池挤掉定义本体
+    candidates=[]
+    seen={} # 记录每个(文件,符号)已保留几条
+    for doc,_ in boosted:
+      key=(doc.metadata.get('file_path',''),doc.metadata.get('symbol',''))
+      if seen.get(key,0)>=3: # 已保留3条,跳过
+        continue
+      seen[key]=seen.get(key,0)+1 # 计数+1
+      candidates.append(doc)
+      if len(candidates)>=30: # 放宽到30条,给更多候选进入重排的机会
+        break
+    print(f"[hybrid]RRF候选({len(candidates)}条):{[d.metadata.get('symbol') for d in candidates]}")
+    # 调试日志检查
+
+    # "定义/实现/声明"类问题:tests/往往只是调用方,容易挤掉定义本体
+    need_def=any(k in question for k in ("定义","实现","声明"))
+    n=len(candidates) if need_def else RERANK_TOP_N # 定义类问题全量精排,否则large块可能排不进前6被丢掉
+    result=rerank(question,candidates,top_n=n) # 调用rerank重排函数,对RRF候选文档进行精排
+    if need_def:
+      # 稳定排序,依次满足:
+      # 1)非测试文件优先(tests/ 里多是调用方,会挤掉定义本体)
+      # 2)命中query标识符的超长实现块(large)最优先(overload桩函数体只有一个 ...,只有large块才是真实实现)
+      # 3)组内保持rerank原有相关性顺序
+      result.sort(key=lambda d: (
+        1 if str(d.metadata.get("file_path","")).replace("\\","/").startswith(("tests/","test_")) else 0,
+        0 if ("(large)" in str(d.metadata.get("symbol","")) and any(i.lower() in str(d.metadata.get("symbol","")).lower() for i in ids)) else 1,
+      ))
+      result=result[:RERANK_TOP_N] # 降权后再截回最终条数
+    print(f"[hybrid]rerank后:{[d.metadata.get('symbol') for d in result]}")
+    # 调试日志检查
+    return result
+    # 返回精排后的文档列表
+
+# 注意:这里用同步redis,而不是async redis.asyncio。 
+# 原因:API路由后续会改async def,但读取BM25原料这件事 
+# 属于"启动时懒加载一次、后续全读内存缓存"的低频操作, 
+# 用同步redis反而更简单,不用在路由里到处 await。 
+# 如果你想全链路async,也可以换成redis.asyncio,逻辑一样。
+_bm25_redis_client=_redis.from_url(
+  # _bm25_redis_client:模块级变量名（全进程唯一一份，进程启动时创建一次），存储同步redis客户端实例
+  # _redis.from_url():redis库的工厂方法，根据URL字符串自动解析host/port/db，创建连接池客户端
+  settings.redis_url, # 从配置模块获取Redis连接URL
+  decode_responses=True, # 开启响应解码,将Redis返回的字节字符串转换为str字符串
+)
+
+def _build_bm25_from_chunks ( chunks: list [ dict ] ) -> BM25Retriever: 
+  """从AST切分的raw chunks字典列表重建BM25Retriever。
+    和顶部的build_bm25逻辑完全一样,单独抽出来是为了复用。""" 
+  return BM25Retriever.from_texts(
+        texts=[f"{c['metadata']['symbol']} {c['content']}" for c in chunks],
+        metadatas=[c["metadata"] for c in chunks],
+        preprocess_func=_tokenize,
+    )
+
+def _bm25_cache_hit(collection:str)->BM25Retriever|None:
+    """三级查找:内存缓存->Redis原料->失败。
+    成功时顺手回填内存缓存,下次就不用再读Redis了。"""
+    # 第1级:内存命中(绝大多数请求走这里)
+    cached=_bm25_memory.get(collection)
+     # _bm25_memory.get():调用内存字典的get()方法
+    if cached is not None:
+        return cached
+     # 如果collection键存在->对应的值（BM25Retriever对象）
+     # 如果不存在->None（dict.get()默认返回None）
+
+     # 第2级:从Redis取worker存的原料
+     # key=f"bm25:{collection}",TTL7天(worker写的时候定的)
+    raw=_bm25_redis_client.get(f"bm25:{collection}")
+      # _bm25_redis_client.get():同步redis客户端的get()方法（对应Redis命令`GET`）
+    if raw is None:
+      # Redis里也没有->说明这个collection从未被worker ingest过
+      # Redis里也没这个key->整个三级查找全miss
+      return None
+      # 向上返回None,让调用方（routes.py）知道
+      # "这个collection从未被ingest"，由调用方决定报什么HTTP错误
+
+    # 反序列化JSON->chunks字典列表 
+    # worker存的是json.dumps(chunks),这里json.loads回来
+    chunks=json.loads(raw)
+      # json.loads():把JSON字符串还原成Python对象（list/dict）
+    bm25=_build_bm25_from_chunks(chunks)
+    # 从AST切分的raw chunks字典列表重建BM25Retriever
+    bm25.k=CANDIDATE_K # 设置候选文档数量为CANDIDATE_K（当前50条）
+
+    # 回填内存缓存:下次同collection的查询直接走第1级
+    _bm25_memory[collection]=bm25
+    # 向内存字典里写入一条记录。键是collection名，值是刚建的BM25Retriever
+    print(f"[bm25]从Redis重建成功,collection={collection},chunks={len(chunks)}")
+    # 为什么要回填?
+    # 下次同一个collection的查询走第1级就能命中，不用再读Redis
+    return bm25
+    # 三级查找全部完成->返回最终可用的BM25Retriever
+
+# 注意:这里用_bm25_memory作为内存缓存变量名, 
+# 是因为routes.py原来用的是_bm25_cache,我们想和它解耦。 
+# routes.py可以删掉它自己的_bm25_cache,统一调这个函数。
+_bm25_memory:dict[str,BM25Retriever]={} # {}:表示初始时没有任何BM25索引被缓存进来
+# dict[str, BM25Retriever]:键是字符串(collection名),值是BM25Retriever对象
+    
+
+
+
+
+    

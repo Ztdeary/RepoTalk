@@ -1,0 +1,212 @@
+[
+  {
+    "id": 1,
+    "type": "func_location",
+    "question": "request 函数在哪个文件定义？",
+    "ground_truth": "request 函数在 api.py 文件中定义。",
+    "ground_truth_contexts": ["src/requests/api.py"]
+  },
+  {
+    "id": 2,
+    "type": "func_location",
+    "question": "get 函数在哪个文件定义？",
+    "ground_truth": "get 函数在 api.py 文件中定义。",
+    "ground_truth_contexts": ["src/requests/api.py"]
+  },
+  {
+    "id": 3,
+    "type": "func_location",
+    "question": "post 函数在哪个文件定义？",
+    "ground_truth": "post 函数在 api.py 文件中定义。",
+    "ground_truth_contexts": ["src/requests/api.py"]
+  },
+  {
+    "id": 4,
+    "type": "func_location",
+    "question": "Session 类的 send 方法在哪个文件定义？",
+    "ground_truth": "Session 类的 send 方法在 sessions.py 文件中定义。",
+    "ground_truth_contexts": ["src/requests/sessions.py"]
+  },
+  {
+    "id": 5,
+    "type": "func_location",
+    "question": "PreparedRequest 的 prepare 方法在哪个文件定义？",
+    "ground_truth": "PreparedRequest 的 prepare 方法在 models.py 文件中定义。",
+    "ground_truth_contexts": ["src/requests/models.py"]
+  },
+  {
+    "id": 6,
+    "type": "func_location",
+    "question": "dispatch_hook 函数在哪个文件定义？",
+    "ground_truth": "dispatch_hook 函数在 hooks.py 文件中定义。",
+    "ground_truth_contexts": ["src/requests/hooks.py"]
+  },
+  {
+    "id": 7,
+    "type": "func_location",
+    "question": "default_hooks 函数在哪个文件定义？",
+    "ground_truth": "default_hooks 函数在 hooks.py 文件中定义。",
+    "ground_truth_contexts": ["src/requests/hooks.py"]
+  },
+  {
+    "id": 8,
+    "type": "func_location",
+    "question": "Session 类的 merge_environment_settings 方法在哪个文件定义？",
+    "ground_truth": "Session 类的 merge_environment_settings 方法在 sessions.py 文件中定义。",
+    "ground_truth_contexts": ["src/requests/sessions.py"]
+  },
+  {
+    "id": 9,
+    "type": "func_location",
+    "question": "Session 类的 resolve_redirects 方法在哪个文件定义？",
+    "ground_truth": "Session 类的 resolve_redirects 方法在 sessions.py 文件中定义。",
+    "ground_truth_contexts": ["src/requests/sessions.py"]
+  },
+  {
+    "id": 10,
+    "type": "func_location",
+    "question": "PreparedRequest 的 prepare_headers 方法在哪个文件定义？",
+    "ground_truth": "PreparedRequest 的 prepare_headers 方法在 models.py 文件中定义。",
+    "ground_truth_contexts": ["src/requests/models.py"]
+  },
+  {
+    "id": 11,
+    "type": "class_location",
+    "question": "Session 类在哪个文件定义？",
+    "ground_truth": "Session 类在 sessions.py 文件中定义。",
+    "ground_truth_contexts": ["src/requests/sessions.py"]
+  },
+  {
+    "id": 12,
+    "type": "class_location",
+    "question": "PreparedRequest 类在哪个文件定义？",
+    "ground_truth": "PreparedRequest 类在 models.py 文件中定义。",
+    "ground_truth_contexts": ["src/requests/models.py"]
+  },
+  {
+    "id": 13,
+    "type": "class_location",
+    "question": "Response 类在哪个文件定义？",
+    "ground_truth": "Response 类在 models.py 文件中定义。",
+    "ground_truth_contexts": ["src/requests/models.py"]
+  },
+  {
+    "id": 14,
+    "type": "class_location",
+    "question": "Request 类在哪个文件定义？",
+    "ground_truth": "Request 类在 models.py 文件中定义。",
+    "ground_truth_contexts": ["src/requests/models.py"]
+  },
+  {
+    "id": 15,
+    "type": "class_location",
+    "question": "HTTPAdapter 类在哪个文件定义？",
+    "ground_truth": "HTTPAdapter 类在 adapters.py 文件中定义。",
+    "ground_truth_contexts": ["src/requests/adapters.py"]
+  },
+  {
+    "id": 16,
+    "type": "class_location",
+    "question": "HTTPBasicAuth 类在哪个文件定义？",
+    "ground_truth": "HTTPBasicAuth 类在 auth.py 文件中定义。",
+    "ground_truth_contexts": ["src/requests/auth.py"]
+  },
+  {
+    "id": 17,
+    "type": "class_location",
+    "question": "HTTPDigestAuth 类在哪个文件定义？",
+    "ground_truth": "HTTPDigestAuth 类在 auth.py 文件中定义。",
+    "ground_truth_contexts": ["src/requests/auth.py"]
+  },
+  {
+    "id": 18,
+    "type": "class_location",
+    "question": "Timeout 异常类在哪个文件定义？",
+    "ground_truth": "Timeout 异常类在 exceptions.py 文件中定义。",
+    "ground_truth_contexts": ["src/requests/exceptions.py"]
+  },
+  {
+    "id": 19,
+    "type": "class_location",
+    "question": "ConnectTimeout 异常类在哪个文件定义？",
+    "ground_truth": "ConnectTimeout 异常类在 exceptions.py 文件中定义。",
+    "ground_truth_contexts": ["src/requests/exceptions.py"]
+  },
+  {
+    "id": 20,
+    "type": "class_location",
+    "question": "ReadTimeout 异常类在哪个文件定义？",
+    "ground_truth": "ReadTimeout 异常类在 exceptions.py 文件中定义。",
+    "ground_truth_contexts": ["src/requests/exceptions.py"]
+  },
+  {
+    "id": 21,
+    "type": "usage",
+    "question": "request 函数的 timeout 参数怎么用？",
+    "ground_truth": "request 函数的 timeout 参数用于设置请求超时时间，可以传入一个数字（单位秒）表示连接和读取的总超时，也可以传入一个 (connect_timeout, read_timeout) 元组分别设置连接超时和读取超时。例如 timeout=5 或 timeout=(3, 10)。",
+    "ground_truth_contexts": ["src/requests/api.py", "src/requests/sessions.py"]
+  },
+  {
+    "id": 22,
+    "type": "usage",
+    "question": "request 函数的 headers 参数是什么类型？",
+    "ground_truth": "request 函数的 headers 参数是字典类型（dict），键为请求头名称（字符串），值为请求头的值（字符串）。",
+    "ground_truth_contexts": ["src/requests/api.py", "src/requests/models.py"]
+  },
+  {
+    "id": 23,
+    "type": "usage",
+    "question": "Session 对象的 mount 方法是干什么的？",
+    "ground_truth": "Session 对象的 mount 方法用于将一个适配器（adapter）挂载到指定的 URL 前缀上，使得以该前缀开头的请求都使用该适配器处理。例如将 HTTPAdapter 挂载到 https:// 前缀，所有 HTTPS 请求都走这个适配器。",
+    "ground_truth_contexts": ["src/requests/sessions.py"]
+  },
+  {
+    "id": 24,
+    "type": "usage",
+    "question": "request 函数的 params 参数怎么用？",
+    "ground_truth": "request 函数的 params 参数用于传递 URL 查询参数，可以传入字典或字节序列，requests 会自动将其编码并拼接到 URL 后面。例如 params={'key': 'value'} 会生成 ?key=value。",
+    "ground_truth_contexts": ["src/requests/api.py", "src/requests/models.py"]
+  },
+  {
+    "id": 25,
+    "type": "usage",
+    "question": "request 函数的 verify 参数控制什么？",
+    "ground_truth": "request 函数的 verify 参数控制是否验证 SSL 证书。设为 True（默认）时验证证书，设为 False 时跳过验证（不推荐），也可以传入 CA 证书文件路径来使用自定义证书。",
+    "ground_truth_contexts": ["src/requests/api.py", "src/requests/sessions.py"]
+  },
+  {
+    "id": 26,
+    "type": "usage",
+    "question": "Response 对象的 json 方法返回什么？",
+    "ground_truth": "Response 对象的 json 方法将响应体解析为 JSON 并返回对应的 Python 对象（通常是 dict 或 list）。如果响应体不是合法的 JSON 会抛出 JSONDecodeError 异常。",
+    "ground_truth_contexts": ["src/requests/models.py"]
+  },
+  {
+    "id": 27,
+    "type": "usage",
+    "question": "request 函数的 allow_redirects 参数默认是什么？",
+    "ground_truth": "request 函数的 allow_redirects 参数默认值为 True，表示允许自动跟随 HTTP 重定向（如 301、302）。设为 False 时不跟随重定向。",
+    "ground_truth_contexts": ["src/requests/api.py"]
+  },
+  {
+    "id": 28,
+    "type": "usage",
+    "question": "Session 对象的 close 方法什么时候调用？",
+    "ground_truth": "Session 对象的 close 方法在不再需要使用 Session 时调用，用于关闭所有底层连接（包括连接池中的连接）。通常在使用完 Session 后调用，或使用 with 语句让其自动关闭。",
+    "ground_truth_contexts": ["src/requests/sessions.py"]
+  },
+  {
+    "id": 29,
+    "type": "usage",
+    "question": "request 函数的 stream 参数有什么用？",
+    "ground_truth": "request 函数的 stream 参数控制是否立即下载响应体。设为 False（默认）时立即下载完整响应体；设为 True 时不立即下载，需要手动调用 iter_content 或 iter_lines 分块读取，适合下载大文件。",
+    "ground_truth_contexts": ["src/requests/api.py", "src/requests/models.py"]
+  },
+  {
+    "id": 30,
+    "type": "usage",
+    "question": "request 函数的 cert 参数接受什么格式？",
+    "ground_truth": "request 函数的 cert 参数接受客户端证书，可以传入证书文件路径字符串，也可以传入 (cert_path, key_path) 元组分别指定证书和私钥文件路径。",
+    "ground_truth_contexts": ["src/requests/api.py", "src/requests/sessions.py"]
+  }
+]
