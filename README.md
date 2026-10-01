@@ -1,4 +1,4 @@
-﻿<!-- Week 0 checkpoint -->
+﻿<!-- Week 1 checkpoint -->
 # RepoTalk
 
 > 开源仓库代码问答 Agent —— 把 GitHub 仓库喂进来，用自然语言提问，得到带出处的答案。
