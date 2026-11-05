@@ -30,6 +30,19 @@ def get_parser(lang_name:str)->Parser:
   parser.language=tsl.get_language(lang_name) # 设置解析器的语言
   return parser # 返回解析器实例
 
+# 检查 grammar 是否已下载,避免阻塞下载
+def _grammar_ready(lang_name:str)->bool:
+  """快速检查某个语言的 grammar 文件是否已缓存,不触发下载。"""
+  import os
+  try:
+    cd = tsl.cache_dir()
+    for f in os.listdir(cd):
+      if f.startswith(f'tree_sitter_{lang_name}') and f.endswith(('.so','.dylib','.dll')):
+        return True
+  except Exception:
+    pass
+  return False
+
 # 创建tree-sitter切分器
 def split_code_file(path:Path,repo_name:str,root:Path,max_chars:int=1200)->list[dict]:
   """手写 tree-sitter 切分：按函数/类边界切，零腰斩
@@ -44,13 +57,17 @@ def split_code_file(path:Path,repo_name:str,root:Path,max_chars:int=1200)->list[
   if not lang_name:
     return []
 
-  # 2.解析源码
-  text=path.read_text(encoding="utf-8",errors="ignore") # 读取文件内容，忽略编码错误
+  # 1.5 grammar 是否已缓存——没有就用简单文本分割 fallback
+  grammar_ok = _grammar_ready(lang_name)
+
+  # 2.读取源码
+  text=path.read_text(encoding="utf-8",errors="ignore")
   if not text.strip():
-    # 如果文件为空，则跳过。text.strip()若空字符串，返回False 加上not，判断为真
-    # 不用if text==""是因为内容是" \n"的文件判不出来（它不是空串，是纯空白）
-    # text.strip() — 去掉字符串两端的空白（空格、`\n`、`\t`、`\r`）
     return []
+
+  # 如果 grammar 不可用,用简单 fallback(按函数/类关键字分割)
+  if not grammar_ok:
+    return _simple_split(text, lang_name, repo_name, path.relative_to(root))
 
   # 3.解析AST 
   """AST是语法树的缩写,是代码的抽象表示
@@ -156,11 +173,80 @@ def merge_module_nodes(nodes:list,rel_path:Path,repo_name:str,lang_name:str)->di
   return {
     "content":content,
     "metadata":{
-      "repo":repo_name, # 仓库名称
-      "file_path":str(rel_path), # 文件路径
-      "language":lang_name, # 语言名称
-      "start_line":start_line, # 起始行号
-      "end_line":end_line, # 结束行号
-      "symbol":"", # 模块级代码没有symbol
+      "repo":repo_name,
+      "file_path":str(rel_path),
+      "language":lang_name,
+      "start_line":start_line,
+      "end_line":end_line,
+      "symbol":"",
     }
   }
+
+# === Fallback 简单文本分割 ===
+# 当 tree-sitter grammar 不可用时使用——按关键字行号分割,质量差但零依赖不阻塞
+_SPLIT_KEYWORDS={
+  "python":("def ","class ","async def "),
+  "javascript":("function ","class ","const ","let ","var "),
+  "typescript":("function ","class ","const ","let ","var ","interface ","type "),
+  "java":("public class ","public void ","public static ","interface ","enum "),
+  "go":("func ","type "),
+  "rust":("fn ","struct ","enum ","impl ","trait "),
+}
+
+def _simple_split(text:str, lang_name:str, repo_name:str, rel_path:Path, max_chars:int=1200)->list[dict]:
+  """按关键字行分割代码——没有 tree-sitter 时的 fallback。"""
+  keywords=_SPLIT_KEYWORDS.get(lang_name, ("def ","class ","function ","func ","fn "))
+  lines=text.split("\n")
+  chunks=[]
+
+  def _make_chunk(content:str, start_line:int, end_line:int, symbol:str=""):
+    return {
+      "content":content,
+      "metadata":{
+        "repo":repo_name,
+        "file_path":str(rel_path),
+        "language":lang_name,
+        "start_line":start_line,
+        "end_line":end_line,
+        "symbol":symbol,
+      }
+    }
+
+  # 找所有关键字起始行
+  split_points=[0]
+  for i, line in enumerate(lines):
+    stripped=line.lstrip()
+    for kw in keywords:
+      if stripped.startswith(kw):
+        split_points.append(i)
+        break
+
+  if len(split_points)==1:
+    # 没有关键字,整个文件作为一个块
+    split_points.append(len(lines))
+
+  # 按 split_points 切
+  for i in range(len(split_points)-1):
+    start=split_points[i]
+    end=split_points[i+1] if i+1<len(split_points) else len(lines)
+    chunk_text="\n".join(lines[start:end])
+
+    # 超过 max_chars 就按行再切
+    if len(chunk_text)>max_chars*2:
+      sub_start=start
+      char_count=0
+      for j in range(start, end):
+        char_count+=len(lines[j])+1
+        if char_count>=max_chars:
+          symbol=lines[sub_start].strip()[:60]
+          chunks.append(_make_chunk("\n".join(lines[sub_start:j+1]), sub_start+1, j+1, symbol))
+          sub_start=j+1
+          char_count=0
+      if sub_start<end:
+        symbol=lines[sub_start].strip()[:60] if sub_start<len(lines) else ""
+        chunks.append(_make_chunk("\n".join(lines[sub_start:end]), sub_start+1, end, symbol))
+    else:
+      symbol=lines[start].strip()[:60]
+      chunks.append(_make_chunk(chunk_text, start+1, end, symbol))
+
+  return chunks

@@ -1,9 +1,10 @@
-﻿<!-- Week 6 checkpoint -->
 # RepoTalk
 
 > 开源仓库代码问答 Agent —— 把 GitHub 仓库喂进来，用自然语言提问，得到带出处的答案。
 
 当前状态：**Week 6 已完成**——RAGAS 四指标评测跑通，Docker Compose 五容器部署就绪。
+
+公网演示地址：<http://47.112.199.52/>（HTTP，直接 IP 访问；域名备案未通过，暂未启用域名与 HTTPS）。
 
 ## 这是什么
 
@@ -44,8 +45,9 @@ flowchart TD
 
     F --> BST["标识符精确加分 +1.0<br/>同 (文件,符号) 最多保留 3 条<br/>总 candidate 上限 30"]
     BST --> RK["bge-reranker-v2-m3 精排<br/>Cross-Encoder 逐对打分<br/>截断 2000 字符 / 块"]
-    RK --> TOP["取 top-6<br/>喂给 LLM"]
-    TOP --> PR["拼 prompt<br/>约束「仅根据上下文回答」<br/>附带引用来源元数据"]
+    RK --> GD["精确符号兜底<br/>query 标识符精确命中的块<br/>强制排到最前<br/>不被 tests 挤掉"]
+    GD --> TOP["取 top-6<br/>喂给 LLM"]
+    TOP --> PR["拼 prompt<br/>要求给出文件路径与行号<br/>无相关代码才答「资料中未提及」"]
     PR --> LLM["DeepSeek temperature=0<br/>生成答案"]
     LLM --> OUT["answer + sources<br/>流式走 SSE 逐 token 推送"]
 
@@ -239,12 +241,14 @@ npm run dev
 | --- | --- | --- | --- |
 | GET | `/health` | 健康检查，返回 `{"status": "ok"}` | 无 |
 | POST | `/auth/login` | 用管理员密码换 JWT | 无 |
-| POST | `/repos` | 创建仓库解析任务，立即返回 `repo_id` | 无 |
-| GET | `/repos` | 查询所有仓库状态 | 无 |
-| GET | `/repos/{repo_id}` | 查询单个仓库状态 | 无 |
-| GET | `/repos/{repo_id}/events` | SSE 订阅解析进度 | 无 |
-| POST | `/chat` | 混合检索 + 生成回答，返回 `answer` + `sources` | Bearer |
+| POST | `/repos` | 创建仓库解析任务，立即返回 `repo_id` | Bearer |
+| GET | `/repos` | 查询所有仓库状态 | Bearer |
+| GET | `/repos/{repo_id}` | 查询单个仓库状态 | Bearer |
+| GET | `/repos/{repo_id}/events` | SSE 订阅解析进度 | Bearer |
+| POST | `/chat` | 混合检索 + 生成回答，返回 `answer` + `source` | Bearer |
 | POST | `/chat/stream` | SSE 流式问答：先推来源，再逐 token 推回答 | Bearer |
+
+除 `/health` 与 `/auth/login` 外，其余路由统一挂 `Depends(get_current_user)`，未带 JWT 返回 401。
 
 请求示例：
 
@@ -317,6 +321,9 @@ docker compose up -d
 | <http://localhost> | 前端工作台 |
 | <http://localhost/api/health> | 经 Nginx 反代的后端健康检查 |
 | <http://localhost:8000/docs> | FastAPI 文档（直连，调试用） |
+| <http://47.112.199.52/> | 公网演示（阿里云 ECS，直接 IP 访问） |
+
+公网只开 80；db / redis / backend 的端口在 `docker-compose.yml` 里都绑到 `127.0.0.1`，不对公网暴露。
 
 部署后逐条验证：
 
@@ -367,6 +374,8 @@ uv run python -m tests.test_week6
 > 关键洞察：answer_relevancy 在调优前就有 74.4%（生成层本身会切题），调优后反而微降 1.9%——这是正常的，因为喂给 LLM 的上下文从 4 块变成 6 块，信息更全但也带来更多噪音。context_recall 从 18.9% 涨到 92.2% 才是核心：之前答案块根本排不进前 4 被丢掉了。
 
 完整报告落在 `backend/tests/week6_ragas_report.json`，含每条样本的回答与检索上下文，便于逐条复盘。
+
+> 表中数字是上线初轮的评测结果。之后又做了一轮问答质量修复：rerank 改为全量候选精排，并对 query 里精确命中的符号块做排序兜底（保证定义块不被 `tests/` 里的调用方挤掉），同时放宽 prompt 的「资料中未提及」判定。修复后本地 30 题回归命中 29/30，唯一未命中的问题（`request` 的 `timeout` 参数）重跑后也能正确引用 docstring 作答。症状对照：修复前问「request 函数定义在哪个文件」，引用里明明有 `api.py`，回答却是「资料中未提及」。
 
 ## 环境注意事项（踩坑记录）
 
@@ -443,11 +452,16 @@ $env:UV_CACHE_DIR="d:\RepoTalk开源仓库代码问答Agent项目\.uv-cache"
 - ✔ Docker Compose 五容器（db / redis / backend / worker / nginx）
 - ✔ 后端 Dockerfile（多阶段构建）
 - ✔ Nginx 反代配置（SSE 三项关键配置齐备）
-- ✔ 一键部署脚本 `deploy.psl`
+- ✔ 一键部署脚本 `deploy.ps1`（构建前端 → 构建镜像 → 启动 → 健康检查，支持 `-SkipBuild` / `-RunEvaluation` / `-Down`）
 - ✔ 架构图（Mermaid，见本文件「数据流」「部署架构」两节）
 
+### ✅ 公网演示
+- ✔ 阿里云 ECS + Docker Compose 部署，公网 IP 直接访问 <http://47.112.199.52/>
+- ✔ 端口收紧：db / redis / backend 仅绑 `127.0.0.1`，公网只开 80
+- ✔ Nginx 静态资源 30 天缓存 + gzip 等级 5，减少出流量
+
 ### ❌ 未完成的 Week 6 收尾项
-- [ ] 公网 HTTPS 域名上线（免费域名 + Let's Encrypt 证书，能直接发给面试官打开）
+- [ ] 域名 + HTTPS（`repotalk.top` 已购买并解析到该 IP，但个人主体备案被驳回：个人名义不能提供任何人可访问的服务，暂不启用，演示改用 IP）
 - [ ] 演示 GIF / 视频（60 秒：登录 → 提交仓库 → 看进度 → 提问 → 流式出答案 → 点引用跳转）
 - [ ] 简历 3 条 STAR bullet（参考模板：「基于 AST 切分 + BM25/向量混合检索 + RRF 融合 + Rerank 精排，将代码问答的 context_recall 从 18.9% 提升到 92.2%（平均 +52pt）」）
 - [ ] 白板 20 分钟技术讲解准备（面试终极验收）

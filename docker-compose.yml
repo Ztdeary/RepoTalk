@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: repotalk
       POSTGRES_DB: repotalk
     ports:
-      - "5433:5432" # 左=宿主机,右=容器;端口冲突时改左边
+      - "127.0.0.1:5433:5432" # 只绑本机,禁止公网直连数据库
     volumes:
       - pgdata:/var/lib/postgresql/data # 数据持久化,容器删了数据还在
     healthcheck:
@@ -22,7 +22,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379" # Redis 无密码,绝不能暴露公网
     healthcheck:
       # 健康检查:用 redis-cli ping
       test: [ "CMD", "redis-cli", "ping" ]
@@ -44,7 +44,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       # redis:6379:用服务名 redis 做主机名
     ports:
-      - "8000:8000" # 暴露后端端口(调试用,生产可只让 nginx 访问)
+      - "127.0.0.1:8000:8000" # 调试用;对外统一走 nginx 的 80
     depends_on:
       # depends_on:等 db 和 redis 健康后再启动 backend
       db:
