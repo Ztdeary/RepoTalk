@@ -44,6 +44,23 @@ def _tokenize(text:str)->list[str]:
   # 所以英文走正则整词、中文走jieba,拼起来两头兼顾。
   return tokens
 # rrf_fuse融合函数
+def _is_def_of(symbol:str,ident:str)->bool:
+  """判断 symbol 是否是 ident 的定义块,兼容两种索引格式。
+  - AST 切分产出的裸符号名: "request" / "Session (large)"
+  - 无 grammar 时的简单分割: "def request(" / "class Session(SessionRedirectMixin):"
+  为什么要兼容?服务器缺 tree-sitter 语法包时会退化成简单分割, symbol 变成签名首行,
+  此时按 symbol == "request" 过滤一条都查不到,精确召回会静默失效。
+  """
+  s=str(symbol or "").replace("(large)","").strip().lower()
+  # 去掉超长块后缀和首尾空白,统一小写,保证大小写不影响判断
+  i=ident.lower()
+  if s==i:
+    return True
+  # 裸符号名命中
+  return s.startswith((f"def {i}(",f"async def {i}(",f"class {i}("))
+  # 签名首行命中:startswith 传元组=命中任意一个前缀即 True
+  # class 后一定跟左括号(继承或空参数),所以 "class Session(" 能覆盖 "class Session(SessionRedirectMixin):"
+
 def rrf_fuse(ranked_list:list[list],k:int=60)->list: 
     # list[list]是因为后面传入的两条路的检索结果都是列表,每个元素是一个Document对象
     # k=60的作用:压平曲线,避免排名过低的文档对融合结果的影响过大
@@ -190,6 +207,18 @@ def hybrid_search(question:str,store,bm25:BM25Retriever)->list:
     # 停用词:仓库名、语法关键字,按它们过滤要么查不到、要么噪音大
     ids=[i for i in dict.fromkeys(ids) if i.lower() not in stop][:3]
     # dict.fromkeys()去重,最多取3个,控制embedding调用次数
+
+    # 第三路补强:用标识符单独跑一次BM25。
+    # 为什么需要?symbol过滤只对"裸符号名"有效;若索引是简单分割产出的
+    # (symbol 形如 "def request("),filter={"symbol":"request"} 一条都匹配不到。
+    # BM25索引文本里拼了 symbol,所以用标识符单独检索能捞回这类定义块。
+    exact_bm25=[]
+    for ident in ids:
+        try:
+            exact_bm25.extend(bm25.invoke(ident))
+        except Exception as e:
+            print(f"[hybrid] ident BM25召回失败({ident}):{e}")
+
     exact_docs=[]
     for ident in ids:
       # 同一符号在库里可能有两种symbol:普通块,和超长块(切分时加了" (large)"后缀)
@@ -205,7 +234,7 @@ def hybrid_search(question:str,store,bm25:BM25Retriever)->list:
     print(f"[hybrid] exact候选:{[d.metadata.get('symbol') for d in exact_docs]}")
     # 调试日志:确认到底捞到了哪些定义块
 
-    fused=rrf_fuse([vec_docs,kw_docs,exact_docs])
+    fused=rrf_fuse([vec_docs,kw_docs,exact_docs,exact_bm25])
     # 两路列表丢进RRF融合函数,对应list[list]的传参格式,进行融合去重+按融合分排序
     if not fused: # 两路都没捞到,直接返回空,不拿空列表去调重排接口 return []
         return []
@@ -215,10 +244,13 @@ def hybrid_search(question:str,store,bm25:BM25Retriever)->list:
     boosted=[] # 存储额外加分的文档
     for doc,score in fused: # 遍历融合后的文档列表
       symbol=doc.metadata.get('symbol','') # 从文档元数据中提取symbol,默认值为空字符串
-      # 如果query中的标识符出现在symbol里(忽略大小写),额外加0.5分
-      if any(idf.lower() in symbol.lower() for idf in identifiers if len(idf)>2):
+      # 定义块优先:symbol 就是"该标识符的定义"时加更多分。
+      # 兼容两种索引格式:裸符号名("request (large)")和签名首行("def request(")。
+      if any(_is_def_of(symbol,idf) for idf in identifiers if len(idf)>2):
+        boosted.append((doc,score+2.0)) # 定义本体,最高优先级
+      elif any(idf.lower() in symbol.lower() for idf in identifiers if len(idf)>2):
         # len(idf)>2 表示只考虑长度大于2的标识符,避免匹配到单字符的标识符(如in,of等)
-        boosted.append((doc,score+1.0)) # 额外加分1.0
+        boosted.append((doc,score+1.0)) # 只是名字里含标识符,次优先级
       else:
         boosted.append((doc,score)) # 没有额外加分
     # 按加成后分数重排
@@ -276,7 +308,9 @@ def hybrid_search(question:str,store,bm25:BM25Retriever)->list:
     def _is_exact(d):
       # _is_exact:判断这条文档的符号是不是"query里精确点名"的那几个
       # d:一条Document对象
-      return _sym(d.metadata.get("symbol","")) in exact_syms
+      symbol=d.metadata.get("symbol","")
+      return _sym(symbol) in exact_syms or any(_is_def_of(symbol,i) for i in exact_syms)
+      # 前半段兼容裸符号名("request"),后半段兼容签名首行("def request(")
       # d.metadata:Document的元数据字典,由AST切分时写入(file_path/start_line/end_line/symbol)
       # d.metadata.get("symbol",""):取symbol,取不到就给空字符串(用[]会抛KeyError)
       # ... in exact_syms:集合成员判断,命中返回True
