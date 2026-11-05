@@ -42,10 +42,21 @@ def answer(question: str, store: PGVector)->dict:
     retriever从向量库捞top-k相关块 → 拼进prompt → 让LLM基于这些块回答。"""
     retriever = store.as_retriever(search_kwargs={"k":4})
     prompt=ChatPromptTemplate.from_template(
-        # 关键 明确要求只根据上下文回答，这是抑制幻觉的第一道防线
-        """仅根据下面的上下文回答用户问题。若上下文没有答案，直接说 资料中未提及。
-        上下文: {context},问题: {question}
+        # ChatPromptTemplate:langchain的模板类,{}里的变量运行时会替换成真实内容
+        # from_template:从一段字符串快速构造模板,不需要手动声明input_variables
+        """你是源码问答助手。严格依据下面的上下文回答,不要编造上下文里没有的代码。
+        上下文每块开头都标了 文件路径、行号、符号名;回答涉及位置时直接引用这些标注。
+        如果上下文里有相关代码,请给出文件路径、行号和解释;信息不完整时先说"已检索到的相关代码是...",再基于可见代码作答。
+        只有当上下文完全没有相关代码时,才回答"资料中未提及"。
+        上下文: {context}
+        问题: {question}
         """
+        # 原文只写了"若上下文没有答案,直接说 资料中未提及",过于绝对:
+        # 模型只要觉得上下文不完整就直接摆烂,哪怕里面明明有相关文件
+        # 新版本把"有相关代码但不完整"和"完全没有相关代码"区分开,
+        # 前者要求给出文件和行号,后者才允许说"资料中未提及"
+        # {context}:运行时会替换成拼接好的代码块(带文件/行号/符号头)
+        # {question}:运行时会替换成用户原始问题
     )
     llm = ChatOpenAI(
         model=settings.llm_model,
@@ -83,9 +94,21 @@ async def stream_answer_hybrid(question:str,docs:list)->AsyncIterator[str]:
     # 2.prompt模板:和answer_hybrid完全相同 
     # "仅根据上下文回答"是抑制幻觉的第一道防线
     prompt=ChatPromptTemplate.from_template(
-        """仅根据下面的上下文回答用户问题。若上下文没有答案，直接说 资料中未提及。
-        上下文: {context},问题: {question}
+        # ChatPromptTemplate:langchain的模板类,{}里的变量运行时会替换成真实内容
+        # from_template:从一段字符串快速构造模板,不需要手动声明input_variables
+        """你是源码问答助手。严格依据下面的上下文回答,不要编造上下文里没有的代码。
+        上下文每块开头都标了 文件路径、行号、符号名;回答涉及位置时直接引用这些标注。
+        如果上下文里有相关代码,请给出文件路径、行号和解释;信息不完整时先说"已检索到的相关代码是...",再基于可见代码作答。
+        只有当上下文完全没有相关代码时,才回答"资料中未提及"。
+        上下文: {context}
+        问题: {question}
         """
+        # 原文只写了"若上下文没有答案,直接说 资料中未提及",过于绝对:
+        # 模型只要觉得上下文不完整就直接摆烂,哪怕里面明明有相关文件
+        # 新版本把"有相关代码但不完整"和"完全没有相关代码"区分开,
+        # 前者要求给出文件和行号,后者才允许说"资料中未提及"
+        # {context}:运行时会替换成拼接好的代码块(带文件/行号/符号头)
+        # {question}:运行时会替换成用户原始问题
     )
     # 3.LLM参数:和answer_hybrid完全相同 
     # temperature=0问答要稳定;timeout=60在流式里含义是"相邻两个token间隔超60秒才算超时", 
@@ -116,10 +139,22 @@ def generate_answer(question:str,docs:list)->dict:
     从answer_hybrid里原样抽出:prompt模板、元数据头拼接、LLM参数全部一致
     只把"检索"和"生成"两步解开,让缓存命中时能跳过检索直接进生成。"""
     prompt=ChatPromptTemplate.from_template(
-        """仅根据下面的上下文回答用户问题。若上下文没有答案，直接说 资料中未提及。
-        上下文: {context},问题: {question}
+        # ChatPromptTemplate:langchain的模板类,{}里的变量运行时会替换成真实内容
+        # from_template:从一段字符串快速构造模板,不需要手动声明input_variables
+        """你是源码问答助手。严格依据下面的上下文回答,不要编造上下文里没有的代码。
+        上下文每块开头都标了 文件路径、行号、符号名;回答涉及位置时直接引用这些标注。
+        如果上下文里有相关代码,请给出文件路径、行号和解释;信息不完整时先说"已检索到的相关代码是...",再基于可见代码作答。
+        只有当上下文完全没有相关代码时,才回答"资料中未提及"。
+        上下文: {context}
+        问题: {question}
         """
-    ) # prompt与answer_hybrid完全相同,"仅根据上下文回答"是抑制幻觉的第一道防线
+        # 原文只写了"若上下文没有答案,直接说 资料中未提及",过于绝对:
+        # 模型只要觉得上下文不完整就直接摆烂,哪怕里面明明有相关文件
+        # 新版本把"有相关代码但不完整"和"完全没有相关代码"区分开,
+        # 前者要求给出文件和行号,后者才允许说"资料中未提及"
+        # {context}:运行时会替换成拼接好的代码块(带文件/行号/符号头)
+        # {question}:运行时会替换成用户原始问题
+    )
     llm=ChatOpenAI(
         model=settings.llm_model,
         base_url=settings.llm_base_url,

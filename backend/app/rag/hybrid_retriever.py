@@ -238,25 +238,94 @@ def hybrid_search(question:str,store,bm25:BM25Retriever)->list:
     print(f"[hybrid]RRF候选({len(candidates)}条):{[d.metadata.get('symbol') for d in candidates]}")
     # 调试日志检查
 
-    # "定义/实现/声明"类问题:tests/往往只是调用方,容易挤掉定义本体
-    need_def=any(k in question for k in ("定义","实现","声明"))
-    n=len(candidates) if need_def else RERANK_TOP_N # 定义类问题全量精排,否则large块可能排不进前6被丢掉
-    result=rerank(question,candidates,top_n=n) # 调用rerank重排函数,对RRF候选文档进行精排
-    if need_def:
-      # 稳定排序,依次满足:
-      # 1)非测试文件优先(tests/ 里多是调用方,会挤掉定义本体)
-      # 2)命中query标识符的超长实现块(large)最优先(overload桩函数体只有一个 ...,只有large块才是真实实现)
-      # 3)组内保持rerank原有相关性顺序
-      result.sort(key=lambda d: (
-        1 if str(d.metadata.get("file_path","")).replace("\\","/").startswith(("tests/","test_")) else 0,
-        0 if ("(large)" in str(d.metadata.get("symbol","")) and any(i.lower() in str(d.metadata.get("symbol","")).lower() for i in ids)) else 1,
-      ))
-      result=result[:RERANK_TOP_N] # 降权后再截回最终条数
-    print(f"[hybrid]rerank后:{[d.metadata.get('symbol') for d in result]}")
-    # 调试日志检查
-    return result
-    # 返回精排后的文档列表
+    # ---- 第一步:精排(改动的核心之一) ----
+    # 原来这里写的是 n=len(candidates) if need_def else RERANK_TOP_N,
+    # 只有问题里含"定义/实现/声明"才全量精排,其他问题只精排出前6条。
+    # 现在改成:无论什么问题,都把全部候选送进rerank。
+    # 为什么?rerank的top_n只决定"返回几条",送进去的文档都已经按token计费了,
+    # 拿全量返回不额外花钱,但能保证下面"精确符号兜底"有一份完整的打分列表可用。
+    result=rerank(question,candidates,top_n=len(candidates))
+    # result:rerank的返回值,是一个list[Document],已按相关性从高到低排好序
+    # rerank(...):上面定义的重排序函数,内部调硅基流动的/v1/rerank接口,失败会自动降级成RRF顺序
+    # question:用户的原始问题,原样透传给重排模型做query
+    # candidates:上一段(第228~237行)去重后的RRF候选列表,最多30条
+    # top_n=len(candidates):返回条数=候选总数,等价于"把所有候选的打分顺序原样要回来"
+    # len(...):Python内置函数,返回列表长度,即候选条数
 
+    # ---- 第二步:提取"必须保留"的精确符号集合 ----
+    exact_syms={i.lower() for i in ids}
+    # exact_syms:集合(set),元素是小写后的标识符,查找是O(1),比list的in快得多
+    # { ... for i in ids}:集合推导式,和列表推导式写法一样,只是用花括号产出set
+    # i.lower():统一转小写,因为symbol元数据里可能是Session也可能是session
+    # ids:第187~192行算出来的标识符列表(从问题里抽长度>=3、去掉停用词、最多3个),
+    #     如"requests的request函数定义在哪个文件？"会抽到["requests","request"]
+    #     注意它已经被精确召回那一路用过,这里复用它,不再重新抽一次
+
+    # ---- 第三步:两个判定小函数 ----
+    def _sym(x):
+      # _sym:归一化符号名的辅助函数
+      # 开头下划线表示"内部使用",外部不调它
+      # x:入参,可能是"Session",也可能是"Session (large)",也可能是None
+      return str(x).replace("(large)","").strip().lower()
+      # str(x):元数据里的symbol可能是None,match对象也不是字符串,统一转成str防报错
+      # .replace("(large)",""):AST切分时超长块会在symbol后加" (large)"后缀,
+      #                          去掉它,才能和query里抽出来的纯标识符对齐
+      # .strip():replace后会残留一个空格("Session (large)"->"Session "),去掉首尾空白
+      # .lower():再统一小写,保证"Session"和"session"视为同一个符号
+
+    def _is_exact(d):
+      # _is_exact:判断这条文档的符号是不是"query里精确点名"的那几个
+      # d:一条Document对象
+      return _sym(d.metadata.get("symbol","")) in exact_syms
+      # d.metadata:Document的元数据字典,由AST切分时写入(file_path/start_line/end_line/symbol)
+      # d.metadata.get("symbol",""):取symbol,取不到就给空字符串(用[]会抛KeyError)
+      # ... in exact_syms:集合成员判断,命中返回True
+      # 返回值:True=这条块是{request/Session/...}之一的定义,必须优先保留
+
+    def _is_test(d):
+      # _is_test:判断这条文档是不是测试文件
+      return str(d.metadata.get("file_path","")).replace("\\","/").startswith(("tests/","test_"))
+      # .replace("\\","/"):Windows上路径是src\requests\...,Linux上是src/requests/...,
+      #                     统一成正斜杠,后面前缀判断才跨平台一致
+      # .startswith(("tests/","test_")):startswith接受元组=命中任意一个前缀即True,
+      #                                  "tests/test_requests.py"和"test_xxx.py"都算测试文件
+
+    # ---- 第四步:排序(精确符号优先,其次非测试文件) ----
+    result.sort(key=lambda d:(0 if _is_exact(d) else 1,1 if _is_test(d) else 0))
+    # result.sort(...):原地排序,直接改result,不产生新列表
+    # key=lambda d:...:排序依据,对每条文档d计算一个元组,Python按元组逐位比较
+    # (第一个键,第二个键):
+    #   第一键 0 if _is_exact(d) else 1 -> 精确命中的排在前面(0<1)
+    #   第二键 1 if _is_test(d) else 0 -> 测试文件排后面(非测试=0<测试=1)
+    # sort是稳定排序:两个键都相等时,保持rerank原来的相关性顺序,不会打乱精排结果
+
+    # ---- 第五步:去重后截断 ----
+    final=[]
+    # final:最终要喂给LLM的文档列表,初始为空
+    seen_keys=set()
+    # seen_keys:已收录的(文件路径,起始行)集合,用来去重
+    for d in result:
+      # 按上面的顺序遍历rerank结果
+      key=(d.metadata.get("file_path",""),d.metadata.get("start_line"))
+      # key:文档的唯一标识=文件路径+起始行号,和rrf_fuse里用的key规则一致
+      # get("start_line"):取不到返回None,不影响去重(同一文件同一行才是同一块)
+      if key in seen_keys:
+        # 已经收录过同一块,跳过
+        continue
+        # continue:跳过本次循环剩余语句,直接进入下一条文档
+      seen_keys.add(key)
+      # set.add(...):把key加入集合,标记"这条已收录"
+      final.append(d)
+      # list.append(...):把文档追加到最终列表尾部,保证顺序不变
+      if len(final)>=RERANK_TOP_N:
+        # RERANK_TOP_N:文件顶部的常量,当前是6,即最终喂给LLM的条数
+        break
+        # break:凑够条数就跳出循环,后面的文档直接丢弃
+    print(f"[hybrid]rerank后:{[d.metadata.get('symbol') for d in final]}")
+    # 调试日志:打印最终留下的都是哪些符号,排查时看这一行就知道定义块有没有进来
+    return final
+    # 返回精排+兜底后的文档列表,供pipeline.py拼context
+    
 # 注意:这里用同步redis,而不是async redis.asyncio。 
 # 原因:API路由后续会改async def,但读取BM25原料这件事 
 # 属于"启动时懒加载一次、后续全读内存缓存"的低频操作, 
