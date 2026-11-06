@@ -35,9 +35,16 @@ import { codeToHtml } from 'shiki'
 import {
   sseRequest,
   getSiteConfig,
+  listChatSessions,
+  getChatSession,
+  createChatSession,
+  updateChatSession,
+  deleteChatSession,
   type ChatMessage,
   type Source,
   type SiteConfig,
+  type ChatSessionSummary,
+  type SavedChatMessage,
 } from '../api/client'
 
 // =====Props接口:与RepoDetail第181行<ChatPanel repoId={repoId}/>对齐=====
@@ -82,6 +89,36 @@ function buildGithubUrl(repoUrl: string, s: Source): string {
   // GitHub遇到/blob/HEAD/会自动重定向到真实默认分支,两边通吃
   // #L120-L155:GitHub的行号锚点语法,L=Line,浏览器打开后自动高亮这段区间
   return `${base}/blob/HEAD/${path}#L${s.start_line}-L${s.end_line}`
+}
+
+// =====把前端消息压缩成"可保存"的格式=====
+// 过滤规则:
+//   1) 只保留有内容的(user 或 assistant 都要 content 非空);
+//   2) assistant 必须已结束(done=true),避免把"生成到一半"的回答存进历史。
+function buildSavedMessages(list: ChatMessage[]): SavedChatMessage[] {
+  return list
+    .filter((m) => m.content.trim() !== '')
+    .filter((m) => m.role === 'user' || !!m.done)
+    .map((m) => ({
+      role: m.role,
+      content: m.content,
+      // sources/error 都原样带上:重进会话时引用卡片、错误提示都能恢复
+      sources: m.sources,
+      error: m.error,
+    }))
+}
+
+// =====历史会话时间展示=====
+// 只显示"月-日 时:分",列表够用;完整时间对浏览历史没有帮助还占宽度
+function formatSessionTime(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 // =====代码块组件:把一段代码用shiki高亮成带配色的HTML===== 
@@ -198,6 +235,20 @@ export default function ChatPanel({ repoId, repoUrl }: ChatPanelProps) {
   // siteCfg:站点配置,用于显示"每日额度/是否可配Key"的提示文案。
   // 拿不到就不显示提示,不影响提问本身
   const [siteCfg, setSiteCfg] = useState<SiteConfig | null>(null)
+  // =====历史会话状态(左侧栏)=====
+  // sessions:当前仓库+当前访客的历史会话,后端已按 updated_at 倒序(最新在上)
+  const [sessions, setSessions] = useState<ChatSessionSummary[]>([])
+  // sessionLoading:左侧栏"加载中"占位,避免先闪一下"暂无历史"
+  const [sessionLoading, setSessionLoading] = useState(true)
+  // activeSessionId:当前正在查看的是哪条历史会话;null=新对话
+  // 用途:①列表高亮 ②退出时决定"更新旧会话"还是"新建会话"
+  const [activeSessionId, setActiveSessionId] = useState<number | null>(null)
+  // confirmDelId:待二次确认删除的会话 id(删除不可恢复,和仓库删除保持一致的交互)
+  const [confirmDelId, setConfirmDelId] = useState<number | null>(null)
+  // deletingId:正在删除的会话 id,用来禁用按钮防连点
+  const [deletingId, setDeletingId] = useState<number | null>(null)
+  // historyError:历史会话操作失败的红字(加载/删除)
+  const [historyError, setHistoryError] = useState('')
   // abortRef:保存当前SSE连接的中断函数 
   // 用useRef而不用useState:中断函数的变化不需要触发重渲染
   const abortRef = useRef<(() => void) | null>(null)
@@ -205,6 +256,14 @@ export default function ChatPanel({ repoId, repoUrl }: ChatPanelProps) {
   // HTMLDivElement|null:初始null(还没挂载),挂载后指向那个div
   // HTMLDivElement是TypeScript中<div>元素的类型,它告诉useRef这个ref将来会指向一个div的DOM对象
   const bottomRef = useRef<HTMLDivElement | null>(null)
+  // messagesRef:永远指向最新的 messages。
+  // 为什么需要:退出保存发生在 useEffect 的清理函数里,闭包拿到的是旧的 messages 状态,
+  // 用 ref 才能拿到最后一刻的完整对话(包括刚流式结束的那条回答)
+  const messagesRef = useRef<ChatMessage[]>([])
+  // activeSessionRef:同上,退出时要判断"更新哪条旧会话",避免闭包读到旧 state
+  const activeSessionRef = useRef<number | null>(null)
+  // loadSeqRef:历史会话加载序号,防止快速点 A 再点 B 时,A 的慢响应把 B 覆盖掉
+  const loadSeqRef = useRef(0)
 
   // =====副作用1:repoId变化=用户切了仓库,清空对话从头开始===== 
   // 必须清的原因:上个仓库的问答记录对新仓库毫无意义
@@ -217,7 +276,60 @@ export default function ChatPanel({ repoId, repoUrl }: ChatPanelProps) {
     setInput('') // 清输入框
     setStatusText('') // 清检索提示
     setLoading(false) // 解锁发送按钮
+    setActiveSessionId(null) // 切仓库后不再指向上一个仓库的历史会话
+    setConfirmDelId(null)
+    setHistoryError('')
   }, [repoId]) // 依赖:repoId变就重跑(首次挂载也会跑一次,无副作用)
+
+  // =====副作用1.1:两个 ref 与 state 同步=====
+  // 为什么不直接在渲染里赋值:渲染函数可能被 React 丢弃/重跑,
+  // 放进 effect 才能保证"提交后的值"和真实状态一致
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
+  useEffect(() => {
+    activeSessionRef.current = activeSessionId
+  }, [activeSessionId])
+
+  // =====副作用1.2:进入/切换仓库时拉取历史会话列表=====
+  useEffect(() => {
+    let alive = true // 防止组件卸载后 setState 触发警告
+    setSessionLoading(true)
+    listChatSessions(repoId)
+      .then((data) => {
+        if (alive) setSessions(data)
+      })
+      .catch(() => {
+        // 拉不到历史只影响左侧栏,问答主流程照常;清空避免显示旧仓库的会话
+        if (alive) setSessions([])
+      })
+      .finally(() => {
+        if (alive) setSessionLoading(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [repoId])
+
+  // =====副作用1.3:退出问答页时自动保存本次会话=====
+  // 触发时机:SPA 里点「返回列表」导致 ChatPanel 卸载。
+  // 规则:
+  //   1) 没有任何有效消息(只打了字没发送/流没产出内容)就不保存;
+  //   2) 当前是打开的历史会话 -> PUT 更新原会话;
+  //   3) 否则 -> POST 新建会话,标题由后端 LLM 总结。
+  // 这里用 fire-and-forget:保存失败不能阻塞用户返回列表,下一次聊天还能再存。
+  useEffect(() => {
+    return () => {
+      const payload = buildSavedMessages(messagesRef.current)
+      if (payload.length === 0) return
+      const sid = activeSessionRef.current
+      if (sid) {
+        updateChatSession(sid, payload).catch(() => {})
+      } else {
+        createChatSession(repoId, payload).catch(() => {})
+      }
+    }
+  }, [repoId])
 
   // =====副作用2:组件卸载时掐断在途SSE流===== 
   // 不做会怎样:用户返回列表页后流还挂着,后台一直收token,白烧资源
@@ -349,6 +461,61 @@ export default function ChatPanel({ repoId, repoUrl }: ChatPanelProps) {
     )
   }
 
+  // =====打开一条历史会话:把消息回填到聊天面板=====
+  const openSession = async (sessionId: number) => {
+    const seq = ++loadSeqRef.current // 本次请求的序号,用于丢弃过期响应
+    setHistoryError('')
+    try {
+      const detail = await getChatSession(sessionId)
+      if (seq !== loadSeqRef.current) return // 期间用户又点了别的会话,本次结果作废
+      // 打开历史=切换对话,先把可能还在跑的流掐掉,避免旧回答继续写进新会话
+      abortRef.current?.()
+      setLoading(false)
+      setStatusText('')
+      setInput('')
+      setMessages(
+        detail.messages.map((m, i) => ({
+          id: `hist-${sessionId}-${i}`, // 历史消息没有实时 id,用序号造一个稳定的
+          role: m.role,
+          content: m.content,
+          sources: m.sources,
+          error: m.error,
+          done: true, // 已存下来的回答都是完成的,done=true 才会走高亮渲染
+        })),
+      )
+      setActiveSessionId(sessionId)
+      setConfirmDelId(null)
+    } catch (err: any) {
+      if (seq === loadSeqRef.current) {
+        setHistoryError(err.response?.data?.detail || '加载历史会话失败')
+      }
+    }
+  }
+
+  // =====删除一条历史会话=====
+  const removeSession = async (sessionId: number) => {
+    setDeletingId(sessionId)
+    setHistoryError('')
+    try {
+      await deleteChatSession(sessionId)
+      setSessions((prev) => prev.filter((s) => s.id !== sessionId))
+      // 删的正好是当前打开的会话:把面板清空并回到"新对话"状态,
+      // 否则用户还能在同一份内容上继续提问,退出时又会把它保存回来
+      if (activeSessionRef.current === sessionId) {
+        setMessages([])
+        setActiveSessionId(null)
+        setInput('')
+        setStatusText('')
+      }
+      setConfirmDelId(null)
+    } catch (err: any) {
+      setHistoryError(err.response?.data?.detail || '删除会话失败')
+      setConfirmDelId(null)
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   // =====键盘事件:Enter发送,Shift+Enter换行(聊天软件通用约定)=====
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // e.nativeEvent.isComposing:中文输入法组词状态标志
@@ -362,7 +529,78 @@ export default function ChatPanel({ repoId, repoUrl }: ChatPanelProps) {
 
   // =====JSX渲染=====
   return (
-    <section className="chat-panel">
+    <section className="chat-layout">
+      {/* =====左侧:历史会话栏=====
+          为什么放在 ChatPanel 内部而不是 RepoDetail:
+          会话数据、当前激活项、退出保存逻辑都在这里,拆出去要额外传一堆状态 */}
+      <aside className="chat-history">
+        <div className="chat-history-head">
+          <h3>历史会话</h3>
+        </div>
+
+        {/* 加载/删除失败的红字;成功操作会立刻消失 */}
+        {historyError && <div className="error">{historyError}</div>}
+
+        {/* 三态互斥:加载中 / 空 / 有数据 */}
+        {sessionLoading ? (
+          <p className="hint">加载中...</p>
+        ) : sessions.length === 0 ? (
+          <p className="hint">暂无历史会话,退出问答后会自动保存</p>
+        ) : (
+          <ul className="chat-history-list">
+            {sessions.map((s) => (
+              <li
+                key={s.id}
+                // active:高亮当前正在查看的会话,让用户知道自己在看哪一段
+                className={`chat-history-item${activeSessionId === s.id ? ' active' : ''}`}
+                onClick={() => openSession(s.id)}
+              >
+                <div className="chat-history-main">
+                  {/* title 属性:标题被 CSS 省略号截断时,悬停能看全 */}
+                  <div className="chat-history-title" title={s.title}>
+                    {s.title}
+                  </div>
+                  <div className="chat-history-time">
+                    {formatSessionTime(s.updated_at)} · {s.message_count} 条
+                  </div>
+                </div>
+
+                {/* 操作区要 stopPropagation,否则点删除会同时触发"打开会话" */}
+                <div className="chat-history-actions" onClick={(e) => e.stopPropagation()}>
+                  {confirmDelId === s.id ? (
+                    <>
+                      <button
+                        className="chat-history-del-confirm"
+                        disabled={deletingId === s.id}
+                        onClick={() => removeSession(s.id)}
+                      >
+                        {deletingId === s.id ? '删除中' : '确认'}
+                      </button>
+                      <button
+                        className="chat-history-cancel"
+                        disabled={deletingId === s.id}
+                        onClick={() => setConfirmDelId(null)}
+                      >
+                        取消
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="chat-history-del"
+                      title="删除该历史会话"
+                      onClick={() => setConfirmDelId(s.id)}
+                    >
+                      删除
+                    </button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </aside>
+
+      <section className="chat-panel">
       {/* =====消息列表区===== */}
       <div className="messages">
         {/* 空对话时的引导语。&&短路:有消息就不渲染 */}
@@ -498,6 +736,7 @@ export default function ChatPanel({ repoId, repoUrl }: ChatPanelProps) {
             : `访客每日可提问 ${siteCfg.guest_daily_question_limit} 次。`}
         </p>
       )}
+      </section>
     </section>
   )
 }

@@ -3,6 +3,7 @@ from app.api.routes import router
 from app.api.repo_routes import router as repo_router # 导入仓库路由
 from app.api.auth_routes import router as auth_router # 导入认证路由
 from app.api.demo_routes import router as demo_router # 访客模式路由(配置/访问上报/测Key/统计)
+from app.api.chat_session_routes import router as chat_session_router # 问答历史会话(列表/详情/保存/删除)
 from fastapi.responses import JSONResponse # 导入FastAPI的JSON响应类
 from contextlib import asynccontextmanager
 # contextlib:Python标准库，提供“上下文管理”工具
@@ -43,6 +44,7 @@ app.include_router(auth_router)
 # 访客模式路由:前缀 /demo,无需登录即可访问 /demo/config、/demo/visit、/demo/test-llm;
 # /demo/stats 在路由内部用 Depends(get_current_user) 单独保护,粒度精确到单个接口
 app.include_router(demo_router)
+app.include_router(chat_session_router) # /chat/sessions:历史会话按访客身份隔离,无需登录
 
 @app.get("/health")
 async def health():

@@ -256,6 +256,61 @@ export async function deleteRepo(repoId: number): Promise<DeleteRepoResult> {
   return res.data
 }
 
+// =====问答历史会话=====
+// 按访客身份隔离(后端读 X-Visitor-Id,拦截器已自动带上),
+// 所以不需要登录也能保存/读取自己的历史
+export interface ChatSessionSummary {
+  id: number
+  title: string          // LLM 总结的短标题
+  created_at: string
+  updated_at: string     // 列表按它倒序 = 最新在上
+  message_count: number
+}
+
+// 保存时只传后端需要的字段:ChatMessage 里的 id/done 等在服务端用不上
+export interface SavedChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+  sources?: import('../types').Source[]
+  error?: string
+}
+
+export interface ChatSessionDetail extends ChatSessionSummary {
+  repo_id: number
+  messages: SavedChatMessage[]
+}
+
+export async function listChatSessions(repoId: number): Promise<ChatSessionSummary[]> {
+  const res = await api.get('/chat/sessions', { params: { repo_id: repoId } })
+  return res.data
+}
+
+export async function getChatSession(sessionId: number): Promise<ChatSessionDetail> {
+  const res = await api.get(`/chat/sessions/${sessionId}`)
+  return res.data
+}
+
+export async function createChatSession(
+  repoId: number,
+  messages: SavedChatMessage[],
+): Promise<ChatSessionSummary> {
+  const res = await api.post('/chat/sessions', { repo_id: repoId, messages })
+  return res.data
+}
+
+export async function updateChatSession(
+  sessionId: number,
+  messages: SavedChatMessage[],
+): Promise<ChatSessionSummary> {
+  const res = await api.put(`/chat/sessions/${sessionId}`, { messages })
+  return res.data
+}
+
+export async function deleteChatSession(sessionId: number): Promise<{ ok: boolean; id: number }> {
+  const res = await api.delete(`/chat/sessions/${sessionId}`)
+  return res.data
+}
+
 // =====SSE请求封装 ===== 
 // 为什么不用浏览器原生的EventSource? 
 // EventSource不支持自定义请求头,也就无法携带Authorization:Bearer<token> 

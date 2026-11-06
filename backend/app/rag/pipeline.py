@@ -231,6 +231,35 @@ def generate_answer(
     ],
 }
 
+# 历史会话标题:交给LLM总结,要求短、只输出标题本身
+async def summarize_title(question:str,answer:str)->str:
+    """用一轮问答生成会话标题(不超过14个字)。
+
+    为什么放在 pipeline 里:标题也走 LLM,复用 _make_llm 的 Key 选择逻辑,
+    管理员/访客用的是同一套站主 Key 配置,不会出现"回答能用、标题却没Key"。
+    失败由调用方兜底(截取问题前几个字),这里不吞异常,方便日志排查。
+    截断输入:标题只需要主题信息,问题和回答各送前几百字就够,
+    既省 token 也避免超长回答把标题带偏。
+    """
+    prompt=ChatPromptTemplate.from_template(
+        """请用不超过14个汉字概括下面这轮代码问答的主题。
+只输出标题本身:不要引号、不要书名号、不要标点结尾、不要解释、不要分行。
+问题:{question}
+回答:{answer}
+"""
+    )
+    llm=_make_llm(max_tokens=48)
+    # 48 个 token 足够 14 个汉字;extra_body 方式已在 _make_llm 里处理好
+    chain=prompt|llm|StrOutputParser()
+    title=await chain.ainvoke({
+        "question":question[:400],
+        "answer":answer[:800],
+    })
+    # 清洗:模型偶尔会带引号/书名号/换行,统一削掉,再限制长度
+    title=" ".join(str(title).split())
+    title=title.strip(" \"'“”‘’《》【】#*-:：。.,，")
+    return title[:24]
+
 # 构造混合检索+生成函数
 def answer_hybrid(question:str,store:PGVector,bm25)->dict:
     """混合检索+生成(薄封装版)。
