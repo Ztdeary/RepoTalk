@@ -231,32 +231,50 @@ def _search_literal_text(question:str,collection:str)->list:
   # psycopg.connect 只认标准 postgresql://,这里统一剥掉驱动段
   dsn=re.sub(r"^postgresql\+[a-z0-9_]+://","postgresql://",settings.database_url)
   # 同步连接串:hybrid_search 本身是同步函数,调用方已放进线程池
-  docs=[]
-  seen=set()
+  docs_by_key={}
+  best_len={} # key -> 命中的最长片段长度,越长越能证明"就是这句原文"
+  hit_count={} # key -> 命中片段数
   try:
     import psycopg # langchain-postgres 的依赖,这里局部导入避免影响其他模块
     with psycopg.connect(dsn,connect_timeout=8) as conn:
       with conn.cursor() as cur:
-        for phrase in phrases:
+        # 按长度从长到短查:长片段更具体,优先占位;
+        # 短引号片段(如「自带 Key」)容易命中无关文件,只作为兜底
+        for phrase in sorted(phrases,key=len,reverse=True):
+          # 关键:先去掉块内所有空白(换行/缩进/多余空格)再比,问题侧同样去空白。
+          # 源码里的整句常被格式化拆成多行(例:"...LLM Key;"换行+"只浏览和提问..."),
+          # 用户粘贴的是同一行;只压成单空格仍会在换行处多一个空格,
+          # 全删空白才能让两边严格对齐。
+          # 用 [[:space:]] 而不是 \\s :标准 SQL 字符串里反斜杠无需转义,跨库更稳
           cur.execute(
             """select e.document,e.cmetadata::text
                from langchain_pg_embedding e
                join langchain_pg_collection c on e.collection_id=c.uuid
-               where c.name=%s and e.document ilike %s
+               where c.name=%s
+                 and regexp_replace(e.document,'[[:space:]]','','g') ilike %s
                limit 8""",
-            (collection,f"%{phrase}%"),
+            (collection,"%"+re.sub(r"\s+","",phrase)+"%"),
           )
           for doc,meta_raw in cur.fetchall():
             meta=json.loads(meta_raw)
             key=(meta.get("file_path"),meta.get("start_line"))
-            if key in seen:
-              continue
-            seen.add(key)
-            docs.append(Document(page_content=doc,metadata=meta))
-    print(f"[hybrid] 逐字命中:{len(docs)}条,片段={phrases}")
+            if key not in docs_by_key:
+              docs_by_key[key]=Document(page_content=doc,metadata=meta)
+            best_len[key]=max(best_len.get(key,0),len(phrase))
+            hit_count[key]=hit_count.get(key,0)+1
+    # 先按"命中的最长片段"降序,再按命中片段数降序:
+    # 整句命中的块排在只命中短引号片段的块前面,置顶时才不会被噪声挤掉
+    docs=sorted(
+      docs_by_key,
+      key=lambda k:(-best_len.get(k,0),-hit_count.get(k,0)),
+    )
+    docs=[docs_by_key[k] for k in docs]
+    print(f"[hybrid] 逐字命中:{len(docs)}条,片段={phrases},"
+          f"最长匹配={[(k[0],k[1],best_len[k]) for k in docs_by_key]}")
   except Exception as exc:
     # 逐字检索只是增强路,失败不能拖垮整个问答
     print(f"[hybrid] 逐字检索失败:{exc}")
+    docs=[]
   return docs
 
 # hybrid_search混合检索
