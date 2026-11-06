@@ -37,14 +37,18 @@ def clone_repo(repo_url: str) -> Path:
     # owner_repo最终="psf/requests"
     
     # 克隆候选URL列表:依次尝试,成功一个就停
-    # 策略:直连(最快) → gitee镜像(国内最快github镜像) → gitclone镜像(备选)
+    # 策略:直连(最快) → gh-proxy反向代理(实测最稳) → gitee镜像 → gitclone镜像
+    # 为什么把 gh-proxy 放在第二位:gitee/mirrors 只镜像热门仓库,
+    # 用户自己的仓库大概率不存在(还会被当成私有库而要求登录);
+    # gitclone.com 也经常 502。gh-proxy 走的是 GitHub 原始内容,任意公开仓库都能拉。
     CANDIDATES = [
         repo_url,  # 候选1:原始URL,直连GitHub
-        repo_url.replace(  # 候选2:gitee镜像
+        "https://gh-proxy.com/" + repo_url,  # 候选2:gh-proxy反向代理,URL直接拼在原地址前
+        repo_url.replace(  # 候选3:gitee镜像
             "https://github.com/",   # 源前缀
             "https://gitee.com/mirrors/"  # 目标前缀——把github.com替换成gitee.com/mirrors
         ).rstrip("/") + "/",  # 去掉末尾多余的"/"后再加一个,保证URL格式规范
-        "https://gitclone.com/github.com/" + owner_repo,  # 候选3:gitclone镜像,拼接刚才解析出的owner/repo
+        "https://gitclone.com/github.com/" + owner_repo,  # 候选4:gitclone镜像,拼接刚才解析出的owner/repo
     ]
     
     last_err = None # 记录最后一次失败的异常——三个全挂时抛给调用方,让日志里能看到原因
