@@ -227,7 +227,9 @@ def _search_literal_text(question:str,collection:str)->list:
   phrases=_literal_phrases(question)
   if not phrases:
     return []
-  dsn=settings.database_url.replace("postgresql+asyncpg://","postgresql://")
+  # SQLAlchemy 的 URL 带驱动后缀(postgresql+psycopg:// / postgresql+asyncpg://),
+  # psycopg.connect 只认标准 postgresql://,这里统一剥掉驱动段
+  dsn=re.sub(r"^postgresql\+[a-z0-9_]+://","postgresql://",settings.database_url)
   # 同步连接串:hybrid_search 本身是同步函数,调用方已放进线程池
   docs=[]
   seen=set()
