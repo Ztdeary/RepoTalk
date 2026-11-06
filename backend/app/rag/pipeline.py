@@ -4,10 +4,64 @@ from langchain_postgres import PGVector
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from app.core.config import settings
+from app.core.byok import LLMCred
+# LLMCred:访客自带Key校验通过后的凭证对象(base_url/api_key/model)。
+# 只做类型标注用,不在这里做任何校验——校验已经在路由层做完了
 from app.rag.hybrid_retriever import hybrid_search as hybrid_retriever
 from collections.abc import AsyncIterator
 # AsyncIterator:异步迭代器的类型标注,表示"这个函数能配合async for逐段产出数据" 
 # 必须从collections.abc导入,Python 3.12+禁止从collections导入抽象基类
+
+def _make_llm(
+    llm_cred:LLMCred|None=None,
+    max_tokens:int|None=None,
+)->ChatOpenAI:
+    """统一构造 LLM 客户端:有访客凭证就用访客的,没有就用站主的。
+
+    为什么必须集中到一处:
+    原来 answer / stream_answer_hybrid / generate_answer 各 new 了一个 ChatOpenAI,
+    加 BYOK 功能时如果三处各改一遍,漏掉一处就会出现
+    "流式回答偷偷用了站主的Key"这种很难发现的账单价差。
+    现在三个函数都调本函数,改一处三处生效。
+
+    参数含义:
+    llm_cred  - 访客自带凭证;None = 走站主配置(只读演示/管理员)
+    max_tokens- 输出 token 上限;None = 不传该参数,由模型按默认生成
+                (演示模式传 320,把单次成本压到几分钱以内)
+    """
+    # 关键坑点:langchain-openai 0.3.x 把构造参数 max_tokens 的别名改成了
+    # max_completion_tokens(OpenAI 官方新字段名),实际发出去的请求体里是
+    # "max_completion_tokens": 320。DeepSeek 兼容接口只认老名字 "max_tokens",
+    # 于是这个上限被静默忽略——实测 320 的限制完全没生效,一次回答能写 3000+ 字。
+    # 第一次尝试用 model_kwargs 塞 max_tokens,被 langchain 归一化成了
+    # max_completion_tokens,仍然无效(本地打印请求体确认过)。
+    # 最终方案:走 extra_body —— 这是 OpenAI SDK 的"逃生口",
+    # 里面的字段不经过任何别名转换,原样合并进请求体,DeepSeek 就能识别。
+    # max_tokens=None 时给 None/空字典,表示"不传这个字段,用服务商默认值"。
+    extra_body = {"max_tokens": max_tokens} if max_tokens is not None else {}
+
+    if llm_cred is not None:
+        # 访客的Key:model/base_url 都来自访客请求头,费用记在访客账上
+        return ChatOpenAI(
+            model=llm_cred.model,
+            base_url=llm_cred.base_url,
+            api_key=llm_cred.api_key,
+            temperature=0, # 问答要稳定,不要创意发挥
+            timeout=60,
+            max_retries=1, # 只重试1次:重试会真实产生额外费用,不能放任
+            extra_body=extra_body or None,
+            # extra_body or None:空字典时传 None,避免给请求体塞一个没有意义的空对象
+        )
+    # 站主的Key:只读演示、管理员问答走这里
+    return ChatOpenAI(
+        model=settings.llm_model,
+        base_url=settings.llm_base_url,
+        api_key=settings.llm_api_key,
+        temperature=0,
+        timeout=60,
+        max_retries=1,
+        extra_body=extra_body or None,
+    )
 
 # 构造加载＋切片函数
 def split_text(text:str)->list[str]:
@@ -58,13 +112,8 @@ def answer(question: str, store: PGVector)->dict:
         # {context}:运行时会替换成拼接好的代码块(带文件/行号/符号头)
         # {question}:运行时会替换成用户原始问题
     )
-    llm = ChatOpenAI(
-        model=settings.llm_model,
-        base_url=settings.llm_base_url,
-        api_key=settings.llm_api_key,
-        temperature=0, # 问答要稳定，别让它发挥创意
-        timeout=60, max_retries=1    
-    )
+    # 走统一的工厂函数:这是老的演示函数,固定用站主的Key
+    llm = _make_llm()
     docs = retriever.invoke(question)
     context="\n\n".join(d.page_content for d in docs)
     chain=prompt| llm| StrOutputParser()
@@ -74,7 +123,12 @@ def answer(question: str, store: PGVector)->dict:
     }
 
 # 构造流式生成函数
-async def stream_answer_hybrid(question:str,docs:list)->AsyncIterator[str]:
+async def stream_answer_hybrid(
+    question:str,
+    docs:list,
+    llm_cred:LLMCred|None=None,
+    max_tokens:int|None=None,
+)->AsyncIterator[str]:
     """流式版生成:输入检索好的docs,逐token产出回答文本。
     与answer_hybrid的关系:
     prompt模板、元数据头拼接方式、LLM参数三者完全一致——只变"取结果的方式",不变"智能"。
@@ -113,13 +167,9 @@ async def stream_answer_hybrid(question:str,docs:list)->AsyncIterator[str]:
     # 3.LLM参数:和answer_hybrid完全相同 
     # temperature=0问答要稳定;timeout=60在流式里含义是"相邻两个token间隔超60秒才算超时", 
     # 正常生成不可能60秒憋不出一个词,安全
-    llm=ChatOpenAI(
-        model=settings.llm_model,
-        base_url=settings.llm_base_url,
-        api_key=settings.llm_api_key,
-        temperature=0,
-        timeout=60,max_retries=1
-    )
+    llm=_make_llm(llm_cred,max_tokens)
+    # 访客带了Key -> 用访客的模型/Key;否则用站主配置。
+    # max_tokens 只有只读演示才非空,用来把单次回答的成本封顶
     # 4.组装链:prompt填变量->送LLM->StrOutputParser把输出剥成纯字符串
     chain=prompt|llm|StrOutputParser()
     # 5.异步流式调用: 
@@ -134,7 +184,12 @@ async def stream_answer_hybrid(question:str,docs:list)->AsyncIterator[str]:
             # yield:函数暂停在这,把这一段token交出去
             # 调用方(routes层的SSE生成器)拿走后,下次循环从这里继续
 
-def generate_answer(question:str,docs:list)->dict:
+def generate_answer(
+    question:str,
+    docs:list,
+    llm_cred:LLMCred|None=None,
+    max_tokens:int|None=None,
+)->dict:
     """给定检索好的docs,生成回答。
     从answer_hybrid里原样抽出:prompt模板、元数据头拼接、LLM参数全部一致
     只把"检索"和"生成"两步解开,让缓存命中时能跳过检索直接进生成。"""
@@ -155,13 +210,9 @@ def generate_answer(question:str,docs:list)->dict:
         # {context}:运行时会替换成拼接好的代码块(带文件/行号/符号头)
         # {question}:运行时会替换成用户原始问题
     )
-    llm=ChatOpenAI(
-        model=settings.llm_model,
-        base_url=settings.llm_base_url,
-        api_key=settings.llm_api_key,
-        temperature=0, # 问答要稳定，别让它发挥创意
-        timeout=60, max_retries=1    
-    ) # LLM参数与answer_hybrid完全相同
+    llm=_make_llm(llm_cred,max_tokens)
+    # 与 stream_answer_hybrid 共用同一个工厂:两条输出路径的"Key选择 + 限长"规则
+    # 永远一致,不会出现"流式省着花钱、非流式却敞开花"的漏洞
     context="\n\n".join(  # 每块前面加元数据头,LLM才能回答"在哪个文件"这类位置问题
         f"# 文件:{d.metadata.get('file_path')}第{d.metadata.get('start_line')}--{d.metadata.get('end_line')}行符号:{d.metadata.get('symbol')}\n{d.page_content}"
         for d in docs

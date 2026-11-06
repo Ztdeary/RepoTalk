@@ -13,7 +13,7 @@ from arq.connections import RedisSettings
 # 服务崩了也不会丢，支持重试、延迟和定时任务
 from langchain_openai import OpenAIEmbeddings # 向量化客户端
 from langchain_postgres import PGVector # 向量库
-from sqlalchemy import select # 查询repos行
+from sqlalchemy import select,text # 查询repos行
 from app.core.config import settings # 导入配置类
 from app.core.db import AsyncSessionLocal,engine,init_db # 导入数据库会话类、引擎、建表函数
 from app.models import Repo,RepoStatus # 导入仓库模型类、状态常量类
@@ -38,6 +38,16 @@ def _repo_name_from_url(repo_url:str)->str:
   # split("/")[-1]表示按斜杠分隔,并取最后一个元素(仓库名)
   # removesuffix(".git")表示去掉.git后缀,返回仓库名
 
+class RepoDeletedError(Exception):
+  """仓库已被管理员删除:任务必须立即停止,不能再往 collection 写任何数据。"""
+
+async def _repo_exists(repo_id:int)->bool:
+  """仓库是否还在。删除仓库允许任何状态,所以每个阶段推进前都要确认一次。"""
+  async with AsyncSessionLocal() as session:
+    return (
+      await session.execute(select(Repo.id).where(Repo.id==repo_id))
+    ).scalar_one_or_none() is not None
+
 async def _emit(ctx,repo_id:int,stage:str,error:str|None=None)->None:
     """一个动作做两件事:写数据库状态+向Redis推一条进度。
     为什么两件一起做?
@@ -61,8 +71,10 @@ async def _emit(ctx,repo_id:int,stage:str,error:str|None=None)->None:
       # scalar = 取单个值（ORM对象）而不是整行
       # one = 期望恰好一条
       # or_none = 查不到时返回None，而不是抛异常
-      if repo is None: # 记录被删了就安静退出，别让任务炸了
-        return # 退出函数，不执行后续代码
+      if repo is None: # 记录被删了:抛出专用异常,让任务立刻停
+        # 为什么不再写状态:行都没了,写不进去;更重要的是后面不能再
+        # 继续 clone/向量化,否则会往"已删除仓库"的 collection 里写孤儿数据
+        raise RepoDeletedError(repo_id)
       repo.status=stage # 推进状态机
       if error is not None: # 无条件赋值:失败时写入原因,成功时(None)自动清空旧错误
         repo.error=error
@@ -154,6 +166,25 @@ async def parse_repo_task(ctx,repo_id:int,repo_url:str,collection:str)->dict:
     # 为什么这段也要to_thread——add_texts内部要做两件阻塞事:
     # 调硅基流动API算向量（网络IO）+psycopg写库（同步驱动）。直接在事件循环里跑会卡死worker。
 
+    # 4.0 向量化期间仓库可能被管理员删除(删除已放开任何状态)。
+    # 这时 _emit 还没被调用,拦不住已经开始的 add_texts;
+    # 所以写完立刻复查一次,若仓库已没了就把刚写入的 collection 清掉,
+    # 否则会留下一个搜索不到、也无人管理的孤儿数据。
+    if not await _repo_exists(repo_id):
+      try:
+        async with AsyncSessionLocal() as session:
+          # 直接按 collection 名删:embeddings 有 ON DELETE CASCADE,
+          # 删 collection 这一行就会连带删掉所有向量
+          await session.execute(
+            text("DELETE FROM langchain_pg_collection WHERE name=:name"),
+            {"name":collection},
+          )
+          await session.commit()
+        print(f"[worker]仓库{repo_id}在向量化期间被删除,已清理collection={collection}")
+      except Exception as e:
+        print(f"[worker]清理已删仓库的向量失败,collection={collection}:{e}")
+      return {"repo_id":repo_id,"chunks":len(chunks),"deleted":True}
+
     # 4.把切分结果存进Redis，供API进程重建BM25。 
     # 关键原因:BM25索引在内存里，worker建好的索引API进程根本看不见。 
     # 所以不传索引、传"原料"，谁用谁重建。
@@ -184,14 +215,23 @@ async def parse_repo_task(ctx,repo_id:int,repo_url:str,collection:str)->dict:
     # return{...}——这个字典是"任务结果"
     # arq会把它序列化存进Redis（按keep_result=3600留1小时）
 
+  except RepoDeletedError:
+    # 管理员删除了正在解析的仓库:静默停止,不写 failed(行已不存在)
+    print(f"[worker]仓库{repo_id}已被删除,停止解析")
+    return {"repo_id":repo_id,"deleted":True}
+
   except Exception as e:
     # 捕获try块里（包括_emit、克隆、切分、入库）抛出的任何异常。
     # 失败也要让前端看见，并把原因落库，方便排查
     print(f"[worker]解析失败,repo_id={repo_id}:{e}")
-    await _emit(ctx,repo_id,RepoStatus.FAILED,error=str(e)[:1000])
-    # str(e)[:1000]——把异常转成字符串后切片取前1000字符。
-    # [:1000]是切片语法:[起点:终点]，省略起点=从头。
-    # 防超长错误信息（比如整段git stderr）撑爆error列。
+    try:
+      await _emit(ctx,repo_id,RepoStatus.FAILED,error=str(e)[:1000])
+      # str(e)[:1000]——把异常转成字符串后切片取前1000字符。
+      # [:1000]是切片语法:[起点:终点]，省略起点=从头。
+      # 防超长错误信息（比如整段git stderr）撑爆error列。
+    except RepoDeletedError:
+      # 报错时仓库恰好被删除:同样安静结束
+      return {"repo_id":repo_id,"deleted":True}
     raise
 
   finally:

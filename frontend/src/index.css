@@ -336,6 +336,80 @@ button:disabled {
   font-weight: 600;
 }
 
+/* 列表行右侧:状态 + 删除按钮。
+   flex:0 0 auto 让这一块不参与压缩,长仓库名才会去挤压左边的 repo-info */
+.repo-item-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+/* 删除操作区:确认态会多出一个"取消",用 flex 横排 */
+.repo-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 删除按钮:描边红字,平时不抢眼,悬停才变实心 */
+.repo-del-btn {
+  padding: 4px 10px;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  background: #fff;
+  color: #dc2626;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all .15s;
+}
+
+.repo-del-btn:hover:not(:disabled) {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+}
+
+/* 禁用态(解析中):置灰 + 禁止手势,鼠标悬停能用 title 看到原因 */
+.repo-del-btn:disabled {
+  border-color: var(--border);
+  color: #c0c4cc;
+  cursor: not-allowed;
+  background: #fff;
+}
+
+/* 二次确认:实心红,和上面的"删除"区分开,避免误点 */
+.repo-del-confirm {
+  padding: 4px 10px;
+  border: 1px solid #dc2626;
+  border-radius: 6px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.repo-del-confirm:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+/* 取消:灰色描边,视觉权重最低 */
+.repo-del-cancel {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.repo-del-cancel:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
 /* ---------- 6. 仓库详情页:进度区 ---------- */
 .progress-section {
   background: var(--card);
@@ -722,5 +796,438 @@ button:disabled {
 
   .input-area {
     padding-top: 10px
+  }
+}
+
+/* ---------- 13. 访客模式:顶栏动作区 / 自带Key / 弹窗 ---------- */
+
+/* 顶栏右侧按钮组:把"自带Key + 登录/退出"两个按钮排成一行 */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* flex-shrink:0 防止标题太长时把这组按钮挤扁 */
+  flex-shrink: 0;
+}
+
+/* 自带Key按钮:默认与返回/退出按钮同一套视觉 */
+.api-key-btn {
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 13px;
+  transition: all .15s;
+  cursor: pointer;
+}
+
+.api-key-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* 已配置状态:绿色,让访客一眼确认"我现在花的是自己的钱" */
+.api-key-on {
+  padding: 8px 14px;
+  border: 1px solid #16a34a;
+  border-radius: 8px;
+  background: #f0fdf4;
+  color: #16a34a;
+  font-size: 13px;
+  transition: all .15s;
+  cursor: pointer;
+}
+
+.api-key-on:hover {
+  background: #dcfce7;
+}
+
+/* 登录页"返回访客演示":与登录按钮同宽,主次分明(白底=次要动作) */
+.cancel-btn {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all .15s;
+}
+
+.cancel-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* 弹窗遮罩:fixed 铺满视口,半透明黑,点击空白处关闭 */
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  /* inset:0 等价于 top/right/bottom/left 都是 0,比写四个属性短 */
+  background: rgba(16, 24, 40, .45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 50;
+  /* z-index 高于页面内容,保证弹窗永远在最上层 */
+}
+
+.modal {
+  width: 460px;
+  max-width: 100%;
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .2);
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* max-height + overflow:小屏(比如手机横屏)时内容超出,内部滚动而不是被截断 */
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal h3 {
+  margin: 0;
+  font-size: 16px
+}
+
+/* 弹窗里的字段标题 */
+.modal label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 13px;
+  color: var(--muted)
+}
+
+.modal input {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  /* box-sizing:border-box 让 padding 算进 width,
+     少了它 input 实际宽度会超出容器 22px(经典溢出 bug) */
+  box-sizing: border-box;
+}
+
+.modal input:focus {
+  outline: none;
+  border-color: var(--primary)
+}
+
+/* 服务商预设按钮行 */
+.preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px
+}
+
+.preset-btn {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #f9fafb;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all .15s;
+}
+
+.preset-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* 弹窗底部按钮组:右对齐 */
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px
+}
+
+.modal-actions button {
+  padding: 9px 16px;
+  border: none;
+  border-radius: 8px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.modal-actions button:hover:not(:disabled) {
+  background: var(--primary-dark)
+}
+
+/* 次要动作(取消):白底描边,视觉权重低于主按钮 */
+.modal-actions .ghost {
+  background: #fff;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+/* 危险动作(清除Key):红色描边,提醒不可逆 */
+.modal-actions .danger {
+  background: #fff;
+  border: 1px solid #fca5a5;
+  color: #dc2626;
+}
+
+/* 禁用态统一处理:变淡+禁止点击 */
+.modal-actions button:disabled,
+.preset-btn:disabled,
+.api-key-btn:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+@media (max-width:640px) {
+  /* 小屏顶栏按钮多,缩小内边距,避免标题被挤成两行 */
+  .header-actions button {
+    padding: 7px 10px;
+    font-size: 12px;
+  }
+
+  /* 弹窗占满可用宽度 */
+  .modal {
+    width: 100%;
+    padding: 18px
+  }
+}
+
+/* ---------- 14. 管理员数据看板 ---------- */
+
+/* 看板整块:与仓库列表区同一套卡片视觉,保证页面语言统一 */
+.stats-section {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* 头部一行:左标题/说明,右时间范围切换;窄屏自动换行 */
+.stats-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  /* wrap:宽度不够时把"切换按钮"整体折到下一行,而不是压扁标题 */
+  flex-wrap: wrap;
+}
+
+.stats-head h2 {
+  margin: 0;
+  font-size: 16px
+}
+
+/* 说明文字:范围、更新时间、刷新频率 */
+.stats-sub {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.stats-tabs {
+  display: flex;
+  gap: 6px
+}
+
+.stats-tab {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all .15s;
+}
+
+.stats-tab:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* 选中态:实心主色,和未选中的描边按钮形成明确对比 */
+.stats-tab.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+/* 指标卡网格:auto-fit + minmax 让列数随宽度自适应,
+   比写死 4 列更稳:窄屏自动变 2 列,不用再写媒体查询调列数 */
+.stats-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.stat-card {
+  background: #f9fafb;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: var(--muted)
+}
+
+/* 数字用 tabular-nums?这里用大字号 + 加粗,一眼可读 */
+.stat-value {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+/* 指标色:同一类数据用同一颜色,和下面柱状图的图例对应 */
+.stat-value.pink {
+  color: #db2777
+}
+
+.stat-value.blue {
+  color: #2563eb
+}
+
+.stat-value.green {
+  color: #16a34a
+}
+
+.stat-value.amber {
+  color: #d97706
+}
+
+.stat-value.purple {
+  color: #7c3aed
+}
+
+/* 每日明细区:上方一条分隔线,和指标卡拉开层级 */
+.stats-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.stats-legend {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.stats-legend span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dot.visits {
+  background: #2563eb
+}
+
+.dot.questions {
+  background: #d97706
+}
+
+/* 一行 = 日期 + 两根柱子 + 数字标签。
+   三列固定宽度用 grid 对齐,不用 flex 手算间距 */
+.bar-row {
+  display: grid;
+  grid-template-columns: 96px 1fr 92px;
+  gap: 10px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.bar-date {
+  color: var(--muted)
+}
+
+/* 柱子容器给一个浅灰底,即使某天数值为 0 也能看出"这一天存在" */
+.bar-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  background: #f3f4f6;
+  border-radius: 4px;
+  padding: 3px 0;
+}
+
+.bar {
+  height: 8px;
+  border-radius: 3px;
+  /* width 由 JSX 的行内 style 控制(按峰值算百分比) */
+  transition: width .3s;
+}
+
+.bar.visits {
+  background: #2563eb
+}
+
+.bar.questions {
+  background: #d97706
+}
+
+/* 数字标签右对齐 + 等宽数字,纵向扫一眼就能比较大小 */
+.bar-nums {
+  text-align: right;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+@media (max-width:640px) {
+  .stats-section {
+    padding: 16px
+  }
+
+  /* 小屏固定两列:auto-fit 在 320px 宽度下会退化成 1 列,信息太散 */
+  .stats-cards {
+    grid-template-columns: repeat(2, 1fr)
+  }
+
+  /* 收窄日期列和数字列,把宽度让给柱状图 */
+  .bar-row {
+    grid-template-columns: 80px 1fr 74px;
+    gap: 8px;
+  }
+
+  .bar-nums {
+    font-size: 11px
+  }
+
+  .stat-value {
+    font-size: 20px
   }
 }

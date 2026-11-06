@@ -25,12 +25,16 @@ import {login} from '../api/client'
 interface LoginProps{
   // onLogin:登录成功回调,接收token字符串,无返回值(void)
   onLogin:(token:string)=>void
+  // onCancel:返回访客演示的回调(可选)。
+  // 访客模式的改动点:登录页不再是"必经之路",而是访客自己点进来的;
+  // 所以必须给一条退路,否则用户点错了就只能关网页
+  onCancel?:()=>void
 }
 
 // =====组件定义===== 
 // {onLogin}:参数位置直接解构props对象,取出onLogin属性 
 // LoginProps:类型标注,如果App忘传onLogin,TS在App.tsx那边编译期就报错
-export default function Login({onLogin}:LoginProps){
+export default function Login({onLogin,onCancel}:LoginProps){
 
   // =====三个状态,对应登录页的三件事=====
 
@@ -114,6 +118,20 @@ export default function Login({onLogin}:LoginProps){
             {loading?'登陆中...':'登录'}
           </button>
         </form>
+
+        {/* 返回访客演示:只有 App 真的传了 onCancel 才渲染。
+            && 短路:onCancel 是 undefined 时整个表达式为假,不渲染任何东西 */}
+        {onCancel && (
+          <button
+            type="button"
+            className="cancel-btn"
+            // 点击回调直接执行,不需要包箭头函数(它本身就是一个无参函数)
+            onClick={onCancel}
+            disabled={loading}
+          >
+            返回访客演示
+          </button>
+        )}
       </div>
     </div>
   )

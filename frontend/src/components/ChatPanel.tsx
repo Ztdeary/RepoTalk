@@ -32,7 +32,13 @@ import { codeToHtml } from 'shiki'
 // 不用EventSource的原因:它不能自定义请求头,带不了JWT 
 // type ChatMessage/type Source:消息与引用来源的类型定义 
 // (client.ts第10行从types.ts再导出了这两个类型,所以从这里导入)
-import { sseRequest, type ChatMessage, type Source } from '../api/client'
+import {
+  sseRequest,
+  getSiteConfig,
+  type ChatMessage,
+  type Source,
+  type SiteConfig,
+} from '../api/client'
 
 // =====Props接口:与RepoDetail第181行<ChatPanel repoId={repoId}/>对齐=====
 interface ChatPanelProps {
@@ -189,6 +195,9 @@ export default function ChatPanel({ repoId, repoUrl }: ChatPanelProps) {
   // statusText:检索阶段的提示文案("正在检索资料...") 
   // 空串=不显示。后端缓存命中时不推status消息,这里就一直保持空串
   const [statusText, setStatusText] = useState('')
+  // siteCfg:站点配置,用于显示"每日额度/是否可配Key"的提示文案。
+  // 拿不到就不显示提示,不影响提问本身
+  const [siteCfg, setSiteCfg] = useState<SiteConfig | null>(null)
   // abortRef:保存当前SSE连接的中断函数 
   // 用useRef而不用useState:中断函数的变化不需要触发重渲染
   const abortRef = useRef<(() => void) | null>(null)
@@ -219,7 +228,14 @@ export default function ChatPanel({ repoId, repoUrl }: ChatPanelProps) {
     }
   }, []) // 空依赖:只在挂载/卸载时执行一次
 
-  // =====副作用3:messages每变一次,滚动条压到底部===== 
+  // =====副作用3:挂载时读一次站点配置(额度提示用)=====
+  // 只读一次即可:额度是会话期间的静态配置,不需要实时刷新;
+  // 失败就保持 null,界面上不显示提示,但提问流程照常
+  useEffect(() => {
+    getSiteConfig().then(setSiteCfg).catch(() => setSiteCfg(null))
+  }, [])
+
+  // =====副作用4:messages每变一次,滚动条压到底部===== 
   // 流式期间token疯狂追加,每次追加都压底,用户始终看到最新内容
   useEffect(() => {
     // scrollIntoView():把这个DOM元素滚进可视区域
@@ -471,6 +487,17 @@ export default function ChatPanel({ repoId, repoUrl }: ChatPanelProps) {
           {loading ? '生成中' : '发送'}
         </button>
       </div>
+
+      { /* =====访客额度提示:siteCfg拿到才显示,拿不到就不打扰用户 ===== */}
+      {siteCfg && (
+        <p className="hint">
+          {/* 三元:开了自带Key就说明"怎么提额",没开就只报当前额度 */}
+          {siteCfg.byok_enabled
+            ? `访客每日可提问 ${siteCfg.guest_daily_question_limit} 次;`
+              + `在右上角配置自己的 LLM Key 后可提升到 ${siteCfg.byok_daily_question_limit} 次。`
+            : `访客每日可提问 ${siteCfg.guest_daily_question_limit} 次。`}
+        </p>
+      )}
     </section>
   )
 }

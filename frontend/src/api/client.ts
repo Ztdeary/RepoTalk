@@ -8,6 +8,10 @@ import axios, { type AxiosInstance } from 'axios'
 import type { Repo } from '../types'
 // 顺便把Source/ChatMessage再导出一次,因为ChatPanel.tsx是从../api/client导入这两个类型的
 export type { Repo, Source, ChatMessage } from '../types'
+// 访客 ID + 自带 Key 的公共请求头生成器(见 session.ts)
+// 为什么集中在一个函数里:axios 和 fetch(SSE)是两条独立的请求通道,
+// 只有共用同一个 llmHeaders(),才不会出现"普通请求带了Key、流式请求忘了带"的漏洞
+import { llmHeaders } from './session'
 
 // =====创建axios实例 ===== 
 // axios.create():创建一个自定义配置的axios实例 
@@ -40,6 +44,16 @@ api.interceptors.request.use((config) => {
     // 后端security.py按"Bearer <token>"格式解析JWT
     config.headers.Authorization = `Bearer ${token}`
   }
+
+  // 公共头:访客 ID 必带;配了自带 Key 就同时带三个 X-LLM-*
+  // Object.entries:把对象拆成 [键,值] 二元数组,循环写进 axios 的头对象
+  // 为什么不是硬编码三行:没配 Key 时这三个头必须"完全不出现",
+  // 而不是传空字符串——空字符串会被后端当成"带了一个错误的Key"而报400
+  const extraHeaders = llmHeaders()
+  for (const [key, value] of Object.entries(extraHeaders)) {
+    config.headers[key] = value
+  }
+
   // 必须return config,否则请求不会发出
   return config
 })
@@ -57,9 +71,14 @@ api.interceptors.response.use(
 
     if (error.response?.status === 401 && !isLoginRequest) {
       // 401=未授权:token无效或过期
-      localStorage.removeItem('token')
-      // 刷新页面:App组件初始化时发现没有token,会显示登录页
-      window.location.reload()
+      // 访客模式的关键改动:只有"本来就有 token"才清+刷新。
+      // 为什么:现在访客不登录也能用,如果他手里没有 token,
+      // 任何一次 401 都触发 reload 就会变成"无限刷新"的死循环页面。
+      if (localStorage.getItem('token')) {
+        localStorage.removeItem('token')
+        // 刷新页面:App组件初始化时发现没有token,会老老实实回到访客模式
+        window.location.reload()
+      }
     }
     // Promise.reject(error):把错误继续抛出,让调用方的catch能捕获
     return Promise.reject(error)
@@ -78,6 +97,114 @@ export async function login(password: string): Promise<string> {
   // res.data:响应体,后端返回{access_token,token_type,expires_in} 
   // 我们只需要access_token
   return res.data.access_token
+}
+
+// =====访客模式:站点配置=====
+// GET/demo/config
+// 前端据此决定三件事:显不显示"自带Key"入口、提交仓库是否要提示先配Key、每日额度文案
+export interface SiteConfig {
+  byok_enabled: boolean              // 总开关:false 时前端把自带Key功能整个藏起来
+  guest_daily_question_limit: number // 无Key访客每日提问上限
+  byok_daily_question_limit: number  // 带Key访客每日上限(防刷)
+  guest_daily_repo_limit: number     // 每人每天最多提交几个仓库
+  demo_max_question_chars: number    // 演示模式问题字数上限
+}
+
+export async function getSiteConfig(): Promise<SiteConfig> {
+  const res = await api.get('/demo/config')
+  // 逐字段兜底解析:后端以后加字段/少字段,前端都不会崩
+  // Number(x ?? 0):undefined -> 0,避免把 NaN 显示到界面上
+  return {
+    byok_enabled: !!res.data?.byok_enabled,
+    guest_daily_question_limit: Number(res.data?.guest_daily_question_limit ?? 0),
+    byok_daily_question_limit: Number(res.data?.byok_daily_question_limit ?? 0),
+    guest_daily_repo_limit: Number(res.data?.guest_daily_repo_limit ?? 0),
+    demo_max_question_chars: Number(res.data?.demo_max_question_chars ?? 0),
+  }
+}
+
+// =====访客模式:上报一次访问=====
+// POST/demo/visit
+// App 启动时调一次,后端按访客ID去重统计 UV
+export async function recordVisit(): Promise<void> {
+  // 不传body:后端从 X-Visitor-Id 头取身份(拦截器已自动加上)
+  await api.post('/demo/visit')
+}
+
+// =====访客模式:测试自带Key=====
+// POST/demo/test-llm
+// 参数用前端驼峰,发出去时映射成后端下划线字段
+export async function testLLM(cred: {
+  baseUrl: string
+  apiKey: string
+  model: string
+}): Promise<{ ok: boolean; message: string }> {
+  try {
+    const res = await api.post(
+      '/demo/test-llm',
+      {
+        base_url: cred.baseUrl, // 后端 ByokReq.base_url
+        api_key: cred.apiKey,   // 后端 ByokReq.api_key
+        model: cred.model,      // 后端 ByokReq.model
+      },
+      // 单独覆盖超时:测试连接可能因为服务商慢而超过 axios 默认的 30 秒?
+      // 这里反而设更短(20秒),因为后端探测本身上限是10秒,
+      // 前端再等太久只会让用户以为页面卡死
+      { timeout: 20000 },
+    )
+    // !!res.data?.ok:后端返回 true/false,任何异常值统一归一成布尔
+    return { ok: !!res.data?.ok, message: String(res.data?.message ?? '') }
+  } catch (err: any) {
+    // 后端在 HTTP 层拒绝(域名不在白名单/超时/未启用)时走这里,
+    // FastAPI 的 detail 是中文说明,直接展示给用户
+    return {
+      ok: false,
+      message: String(err.response?.data?.detail ?? '测试失败,请检查地址、Key 与网络'),
+    }
+  }
+}
+
+// =====访客模式:查看统计(仅管理员)=====
+// GET/demo/stats?days=1|7|30
+// 后端一次返回"周期汇总 totals" + "每日明细 daily",看板不用自己再累加
+
+// 每一天的明细(后端 daily 数组的元素)
+export interface StatsDay {
+  date: string            // 北京时间日期串,如 20261106
+  visits: number          // 当日访问次数(PV,已去重)
+  unique_visitors: number // 当日独立访客(UV)
+  questions: number       // 当日提问次数
+  byok_questions: number  // 其中访客自带 Key 的次数
+  guest_questions: number // 其中站主买单的次数
+  repos: number           // 当日提交的仓库数
+  askers: number          // 当日提问过的人数
+  repo_submitters: number // 当日提交过仓库的人数
+  estimated_guest_cost_yuan: number // 当日站主预计花费(元)
+}
+
+// 整个统计周期的汇总
+export interface StatsTotals {
+  visits: number
+  unique_visitors: number // 周期内去重(并集),不是每日 UV 相加
+  questions: number
+  byok_questions: number
+  guest_questions: number
+  repos: number
+  askers: number
+  repo_submitters: number
+  estimated_guest_cost_yuan: number
+}
+
+export interface DemoStats {
+  period: { days: number; start: string; end: string }
+  totals: StatsTotals
+  daily: StatsDay[]
+}
+
+export async function getDemoStats(days: number = 1): Promise<DemoStats> {
+  // params:axios 会把它拼成 ?days=7,不用手工拼字符串
+  const res = await api.get('/demo/stats', { params: { days } })
+  return res.data
 }
 
 // =====获取仓库列表===== 
@@ -108,6 +235,24 @@ export async function createRepo(repoUrl: string, collection?: string): Promise<
 export async function getRepo(repoId: number): Promise<Repo> {
   // 模板字符串:把repoId拼进URL
   const res = await api.get(`/repos/${repoId}`)
+  return res.data
+}
+
+// =====删除仓库(仅管理员)=====
+// DELETE /repos/{id}
+// 后端会一并清掉 pgvector 向量集合、BM25 索引和检索缓存,
+// 返回 vector_removed=false 表示向量没删掉(清理失败或与其他仓库共用 collection)
+export interface DeleteRepoResult {
+  ok: boolean
+  repo_id: number
+  collection: string
+  vector_removed: boolean
+  shared_collection: boolean
+}
+
+export async function deleteRepo(repoId: number): Promise<DeleteRepoResult> {
+  // delete:axios 的 DELETE 方法,不需要请求体,id 在 URL 里
+  const res = await api.delete(`/repos/${repoId}`)
   return res.data
 }
 
@@ -155,10 +300,12 @@ export function sseRequest(
     // method:HTTP方法,有body就是POST,没有就是GET
     method: body ? 'POST' : 'GET',
     // headers:请求头
+    // 展开顺序:先铺公共头(访客ID + 自带Key),再盖 Authorization。
+    // 展开运算符 ...:把对象里的键值对平铺进来
     headers: {
       'Content-Type': 'application/json', // 告诉后端请求体是JSON格式
-      // 展开运算符...:有token就加Authorization头,没有就不加
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...llmHeaders(),                    // X-Visitor-Id / X-LLM-Base-URL / X-LLM-Key / X-LLM-Model
+      ...(token ? { Authorization: `Bearer ${token}` } : {}), // 管理员token:有才加
     },
     // body:请求体,POST时传,JSON.stringify把对象转成JSON字符串
     body: body ? JSON.stringify(body) : undefined,
@@ -171,13 +318,26 @@ export function sseRequest(
       // 先判 HTTP 状态码:fetch 只在网络层失败才 reject,
       // 401(token过期)/500(后端崩)都会正常 resolve,但 body 不是 SSE 数据
       if (!response.ok) {
-        // 401 与 axios 拦截器保持同一套行为:清 token + 回登录页
-        if (response.status === 401) {
+        // 401 与 axios 拦截器保持同一套行为:只有原本有 token 才清+刷新。
+        // 访客没有 token 时不刷新,否则会陷入"刷新->再401->再刷新"的死循环
+        if (response.status === 401 && token) {
           localStorage.removeItem('token')
           window.location.reload()
+          return
         }
-        // 其他状态交给上层 onError 显示错误,避免"空白回答"
-        callbacks.onError?.(new Error(`HTTP ${response.status}`))
+
+        // 解析 FastAPI 的错误体 {"detail":"..."}。
+        // 为什么必须解析:访客被额度拦住时,后端返回的是
+        // "今日提问次数已用完(上限100次)…"这种可行动的中文提示,
+        // 如果只显示 "HTTP 429",用户根本不知道该怎么办
+        let detail = `HTTP ${response.status}`
+        try {
+          const errorBody = await response.json()
+          if (typeof errorBody?.detail === 'string') detail = errorBody.detail
+        } catch {
+          // 响应体不是 JSON(网关返回 HTML),保留状态码文案
+        }
+        callbacks.onError?.(new Error(detail))
         return
       }
       // response.body:响应体的ReadableStream(可读流) 

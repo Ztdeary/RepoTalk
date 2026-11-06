@@ -425,6 +425,22 @@ def _bm25_cache_hit(collection:str)->BM25Retriever|None:
 # routes.py可以删掉它自己的_bm25_cache,统一调这个函数。
 _bm25_memory:dict[str,BM25Retriever]={} # {}:表示初始时没有任何BM25索引被缓存进来
 # dict[str, BM25Retriever]:键是字符串(collection名),值是BM25Retriever对象
+
+def drop_bm25(collection:str)->None:
+  """删除某个 collection 的 BM25 索引:内存缓存 + Redis 原料两层都要清。
+
+  为什么只删 Redis 不够:本进程内存里的 _bm25_memory 还留着旧的索引对象,
+  删仓库后继续提问会拿"已删除仓库"的代码做关键词召回,出现幽灵数据。
+  为什么要删 Redis:_bm25_memory 是进程级缓存,重启/多 worker 时会回落读 Redis,
+  不删 Redis 的话,另一个进程仍能把它重建出来。"""
+  _bm25_memory.pop(collection,None)
+  # pop(key,None):键不存在时返回 None 而不是抛 KeyError,删除不存在的仓库也不炸
+  try:
+    _bm25_redis_client.delete(f"bm25:{collection}")
+    # delete:同步客户端删除,对应 Redis 的 DEL 命令
+  except Exception as exc:
+    # 清缓存失败不能让删除接口失败(数据库行已经删了),只打日志
+    print(f"[bm25]删除索引失败,collection={collection}:{exc}")
     
 
 

@@ -102,3 +102,30 @@ async def get_current_user(
   # 返回token归属者。router级别挂载时这个返回值被丢弃
   # 但写成返回sub是为了将来某个路由想知道"当前是谁"时,可以直接在函数参数里Depends拿到
 
+async def get_optional_user(
+  cred:HTTPAuthorizationCredentials|None=Depends(_bearer),
+) -> str | None:
+  """可选登录:带了有效token -> 返回"admin";没带/无效/过期 -> 返回None。
+  与 get_current_user 的区别(这是访客模式的核心):
+  get_current_user 是"没token就401",适合管理员专用接口;
+  get_optional_user 是"没token也放行",适合访客也能用的接口——
+  /repos 的提交接口靠它区分"管理员(免配额)"和"访客(走自带Key或拒绝)"。
+  为什么参数复用同一个 _bearer?
+  它是无状态的解析器,复用它才能让 Swagger 的 Authorize 按钮同时作用于两组依赖。"""
+  if cred is None:
+    # 没带 Authorization 头 = 纯访客,不是错误
+    return None
+  try:
+    payload=jwt.decode(
+      cred.credentials,       # 头里抠出来的 token 字符串
+      settings.jwt_secret,    # 同一把密钥做签名校验
+      algorithms=[ALGORITHM], # 算法白名单,防"alg=none"降级攻击
+    )
+  except (ExpiredSignatureError,InvalidTokenError):
+    # 过期或伪造:对"可选登录"来说,等价于"没登录",
+    # 不抛 401。否则访客拿着一个过期token访问公开接口就完全用不了了
+    return None
+  sub=payload.get("sub")
+  # payload.get 取不到 sub 时返回 None;再 or None 保证返回值类型干净
+  return sub or None
+

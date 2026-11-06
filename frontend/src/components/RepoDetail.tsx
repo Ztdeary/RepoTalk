@@ -18,6 +18,8 @@ import { getRepo, sseRequest, type Repo } from '../api/client'
 // 从同级目录导入聊天面板组件 
 // 在项目中的作用:本组件只在解析完成(stage==='done')后才挂载它
 import ChatPanel from './ChatPanel'
+// 自带 Key 入口:详情页也要能配置,否则访客从列表点进来后就找不到设置了
+import ApiSettings from './ApiSettings'
 
 // =====Props接口:本组件与父组件App之间的"合同"===== 
 // 作用:对应App.tsx里<RepoDetail repoId={...} onBack={...} onLogout={...}/> 
@@ -28,10 +30,11 @@ interface RepoDetailProps {
   // onBack:()=>void——返回列表回调 
   // 作用:App把selectedRepoId设回null,App重新渲染->切回RepoList
   onBack: () => void
-  // onLogout:()=>void——退出登录回调 
-  // 作用:App把token设为null->清localStorage->回到登录页
-  onLogout: () => void
-  
+  // onLogout?:()=>void——退出登录回调(可选)。
+  // 访客模式下 App 不传它,此时顶栏显示"管理员登录"而不是"退出登录"
+  onLogout?: () => void
+  // onLogin?:()=>void——访客点"管理员登录"时调用(可选)
+  onLogin?: () => void
 }
 
 // =====解析阶段中文文案翻译表===== 
@@ -47,7 +50,7 @@ const STAGE_LABEL: Record<string, string> = {
   failed: '解析失败❌'
 }
 
-export default function RepoDetail({ repoId, onBack, onLogout }: RepoDetailProps) {
+export default function RepoDetail({ repoId, onBack, onLogout, onLogin }: RepoDetailProps) {
 
   // =====三个状态===== // 
 
@@ -153,7 +156,19 @@ export default function RepoDetail({ repoId, onBack, onLogout }: RepoDetailProps
         {/* repo?.collection:可选链——repo还是null(数据库没查回来)时不崩,
           返回undefined;|| 兜底用「仓库#id」,标题栏永不空白 */}
         <h1>{repo?.collection || `仓库${repoId}`}</h1>
-        <button className="logout-btn" onClick={onLogout}>退出登录</button>
+
+        {/* 右侧动作区:自带Key入口 + 登录/退出。
+            包成一个 div 后 .header 仍然只有三个子元素(返回按钮/标题/动作区),
+            space-between 布局不会被撑乱 */}
+        <div className="header-actions">
+          <ApiSettings />
+          {/* onLogout 存在=管理员;否则有 onLogin 就显示登录入口 */}
+          {onLogout ? (
+            <button className="logout-btn" onClick={onLogout}>退出登录</button>
+          ) : onLogin ? (
+            <button className="logout-btn" onClick={onLogin}>管理员登录</button>
+          ) : null}
+        </div>
       </header>
 
       <div className="content">
