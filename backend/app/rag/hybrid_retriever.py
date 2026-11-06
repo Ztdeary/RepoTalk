@@ -184,6 +184,79 @@ def rerank(query:str,docs:list,top_n=RERANK_TOP_N)->list:
     # 举例:results=[{index:5,score:0.9},{index:2,score:0.8}]
     # 返回[docs[5], docs[2]]——rerank认为第6个文档最相关,第3个次之
 
+# =====逐字精确检索=====
+# 解决什么问题:用户贴一整句原文问"这句话在哪",向量检索看重语义、
+# BM25 看重词频,都可能把这句所在的块排到 30 名开外,重排后直接丢掉。
+# 做法:从问题里抽"疑似原文片段",直接去 pgvector 表里 ILIKE 匹配,
+# 命中块作为最高优先级候选,绕开向量/BM25 排序。
+_QUOTED_RE=re.compile(r"[「“\"']([^」”\"']{6,})[」”\"']")
+
+def _literal_phrases(question:str)->list[str]:
+  """从问题里抽取可逐字匹配的片段。
+
+  两类来源:
+  1) 引号/书名号里的内容(≥6 字),用户明确在引用原文;
+  2) 按句末标点切出的长句(≥14 字),对应"把整句话粘贴进来问在哪"的场景。
+  限制最多 3 条、单条 160 字:既控制 SQL 次数,也避免 ILIKE 扫太长的串。
+  """
+  text=question.strip()
+  found=list(_QUOTED_RE.findall(text))
+  # 注意不按分号切:目标句子本身可能含";",切碎后反而只匹配到半句
+  for seg in re.split(r"[。!?!?\n]",text):
+    seg=seg.strip()
+    if len(seg)>=14:
+      found.append(seg)
+  cleaned=[]
+  for c in found:
+    c=re.sub(r"\s+"," ",c).strip(" ,，;；:：。")
+    if len(c)>=6:
+      cleaned.append(c[:160])
+  # dict.fromkeys 去重且保持原顺序;最多 3 条
+  return list(dict.fromkeys(cleaned))[:3]
+
+def _search_literal_text(question:str,collection:str)->list:
+  """在 langchain_pg_embedding 里做逐字匹配,返回命中的 Document。
+
+  为什么直接写 SQL 而不走 store.similarity_search:
+  PGVector 的检索只有"向量距离 + metadata filter",没有"正文包含"能力;
+  而 langchain_pg_embedding.document 就是原始块文本,ILIKE 最直接。
+  collection_id 通过 langchain_pg_collection.name 关联,只查当前仓库。
+  """
+  if not collection:
+    return []
+  phrases=_literal_phrases(question)
+  if not phrases:
+    return []
+  dsn=settings.database_url.replace("postgresql+asyncpg://","postgresql://")
+  # 同步连接串:hybrid_search 本身是同步函数,调用方已放进线程池
+  docs=[]
+  seen=set()
+  try:
+    import psycopg # langchain-postgres 的依赖,这里局部导入避免影响其他模块
+    with psycopg.connect(dsn,connect_timeout=8) as conn:
+      with conn.cursor() as cur:
+        for phrase in phrases:
+          cur.execute(
+            """select e.document,e.cmetadata::text
+               from langchain_pg_embedding e
+               join langchain_pg_collection c on e.collection_id=c.uuid
+               where c.name=%s and e.document ilike %s
+               limit 8""",
+            (collection,f"%{phrase}%"),
+          )
+          for doc,meta_raw in cur.fetchall():
+            meta=json.loads(meta_raw)
+            key=(meta.get("file_path"),meta.get("start_line"))
+            if key in seen:
+              continue
+            seen.add(key)
+            docs.append(Document(page_content=doc,metadata=meta))
+    print(f"[hybrid] 逐字命中:{len(docs)}条,片段={phrases}")
+  except Exception as exc:
+    # 逐字检索只是增强路,失败不能拖垮整个问答
+    print(f"[hybrid] 逐字检索失败:{exc}")
+  return docs
+
 # hybrid_search混合检索
 def hybrid_search(question:str,store,bm25:BM25Retriever)->list:
     """混合检索全流程:双路初检->RRF融合->重排精排。"""
@@ -197,6 +270,12 @@ def hybrid_search(question:str,store,bm25:BM25Retriever)->list:
     # 调试日志:打印vec阶段候选symbol,排查召回问题时使用
     print ( f"[hybrid] kw候选: {[d.metadata.get( 'symbol' ) for d in kw_docs]} " )
     # 调试日志:打印kw阶段候选symbol,排查召回问题时使用
+
+    # 第三路(前置):逐字原文召回
+    # 例如用户粘贴"提交新仓库需要先在右上角…"问这句话在哪:
+    # 这类问题向量/BM25都不可靠,必须靠正文精确包含关系来保证召回
+    exact_text_docs=_search_literal_text(question,getattr(store,"collection_name",""))
+    print(f"[hybrid] 逐字候选:{[(d.metadata.get('file_path'),d.metadata.get('start_line')) for d in exact_text_docs]}")
 
     # 第三路:符号精确召回
     # 解决"高频词"问题:command 在tests里出现上百次,IDF被稀释,定义块进不了前50
@@ -234,7 +313,7 @@ def hybrid_search(question:str,store,bm25:BM25Retriever)->list:
     print(f"[hybrid] exact候选:{[d.metadata.get('symbol') for d in exact_docs]}")
     # 调试日志:确认到底捞到了哪些定义块
 
-    fused=rrf_fuse([vec_docs,kw_docs,exact_docs,exact_bm25])
+    fused=rrf_fuse([vec_docs,kw_docs,exact_docs,exact_bm25,exact_text_docs])
     # 两路列表丢进RRF融合函数,对应list[list]的传参格式,进行融合去重+按融合分排序
     if not fused: # 两路都没捞到,直接返回空,不拿空列表去调重排接口 return []
         return []
@@ -332,6 +411,17 @@ def hybrid_search(question:str,store,bm25:BM25Retriever)->list:
     #   第一键 0 if _is_exact(d) else 1 -> 精确命中的排在前面(0<1)
     #   第二键 1 if _is_test(d) else 0 -> 测试文件排后面(非测试=0<测试=1)
     # sort是稳定排序:两个键都相等时,保持rerank原来的相关性顺序,不会打乱精排结果
+
+    # ---- 第四步补:逐字命中强制置顶 ----
+    # 为什么不只靠 RRF:逐字块通常没有 symbol、也不是定义块,
+    # 在"精确符号优先"的排序里会被压后;它又是用户明确要的证据,
+    # 所以直接提到 result 最前面,保证一定进入最终 top 6。
+    if exact_text_docs:
+      pinned=exact_text_docs[:3]
+      pinned_keys={(d.metadata.get("file_path",""),d.metadata.get("start_line")) for d in pinned}
+      result=[d for d in result if (d.metadata.get("file_path",""),d.metadata.get("start_line")) not in pinned_keys]
+      result=pinned+result
+      print(f"[hybrid] 逐字命中置顶:{[(d.metadata.get('file_path'),d.metadata.get('start_line')) for d in pinned]}")
 
     # ---- 第五步:去重后截断 ----
     final=[]
