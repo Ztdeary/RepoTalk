@@ -1,174 +1,200 @@
-/* 全局样式表,定义登录页、仓库列表、聊天面板、Markdown内容、代码块和闪烁光标等所有页面的外观。 */
-
 /* ============================================================
  * index.css —— RepoTalk 全局样式表
- * 作用:所有组件的 className 都在这里落地,组件只管结构,本文件只管外观。
- * 组织方式:
- * 1) :root 定义设计变量(颜色/圆角/阴影),换主题只改这一处
- * 2) 全局重置 -> 登录页 -> 通用页面骨架 -> 仓库列表 -> 仓库详情 -> 聊天面板
- * 3) 带「难点」标记的地方是容易踩坑的,重点看
+ * 设计方向:「Paper & Ink / 编辑部排版」——
+ * 暖纸底色 + 白卡片 + 发丝描边,墨色按钮,钴蓝只作点缀与焦点。
+ * 字体:MiSans(中文,CDN 失败自动回落系统字体) + JetBrains Mono(代码)。
+ * 组织方式:1)字体 2)设计变量 3)全局重置 4)登录 5)骨架 6)列表
+ *          7)详情进度 8)聊天(历史栏/气泡/来源/Markdown/代码) 9)弹窗 10)看板
+ * 带「难点」标记的地方是容易踩坑的布局约束,勿删。
  * ============================================================ */
 
-/* ---------- 1. 设计变量 ---------- */
+/* ---------- 1. 字体(CDN 加载失败时静默回落到系统字体,不阻塞渲染) ---------- */
+@import url("https://cdn.jsdelivr.net/npm/misans@4.1.0/lib/Normal/MiSans-Regular.min.css");
+@import url("https://cdn.jsdelivr.net/npm/misans@4.1.0/lib/Normal/MiSans-Demibold.min.css");
+@import url("https://cdn.jsdelivr.net/npm/@fontsource/jetbrains-mono@5.1.0/index.css");
+
+/* ---------- 2. 设计变量(换主题只改这里) ---------- */
 :root {
-  --bg: #f5f7fa;
-  /* 页面底色 */
+  --bg: #f5f4f0;            /* 暖纸底,比纯灰更安静 */
   --card: #ffffff;
-  /* 卡片底色 */
-  --border: #e5e7eb;
-  /* 描边色 */
-  --text: #1f2937;
-  /* 主文字 */
-  --muted: #6b7280;
-  /* 次要文字(提示语/时间/说明) */
-  --primary: #2563eb;
-  /* 主色:按钮/链接/焦点 */
-  --primary-dark: #1d4ed8;
-  /* 主色按下态 */
-  --danger: #dc2626;
-  /* 错误红 */
-  --radius: 10px;
-  /* 统一圆角 */
-  --shadow: 0 2px 10px rgba(16, 24, 40, .08);
-  --code-bg: #24292e;
-  /* shiki github-dark 主题底色,两者要一致 */
+  --border: #e7e4db;        /* 发丝描边,和纸底同色系,不抢眼 */
+  --border-strong: #d8d4c8; /* 需要更明确分隔时用(输入区/来源卡) */
+  --text: #181a1f;          /* 墨色 */
+  --muted: #6e7278;
+  --faint: #9ca0a6;
+  --primary: #2b3fe0;       /* 钴蓝:链接/焦点/active 状态 */
+  --primary-soft: rgba(43, 63, 224, .08);
+  --primary-dark: #1f31b8;
+  --ink: #181a1f;           /* 主按钮:墨黑实心,比蓝色更沉稳 */
+  --ink-hover: #2c2f36;
+  --danger: #c73527;
+  --danger-soft: #fdeceb;
+  --ok: #18853d;
+  --ok-soft: #eaf6ee;
+  --radius: 14px;
+  --radius-sm: 10px;
+  --shadow: 0 1px 2px rgba(24, 26, 31, .04), 0 8px 24px rgba(24, 26, 31, .05);
+  --shadow-lg: 0 24px 64px rgba(24, 26, 31, .18);
+  --code-bg: #14161c;       /* 与 shiki github-dark 底色一致,防闪色 */
+  --font-sans: "MiSans", "MiSans-Demibold", "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, "Courier New", monospace;
+  --ease: cubic-bezier(.4, 0, .2, 1); /* 统一缓动,微交互不显廉价 */
 }
 
-/* ---------- 2. 全局重置 ---------- */
-* {
-  box-sizing: border-box
-}
-
-/* 让 width 包含 padding/border,布局算尺寸不翻车 */
+/* ---------- 3. 全局重置 ---------- */
+* { box-sizing: border-box }
 
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
-  background: var(--bg);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  background:
+    /* 极淡的纸面纹理:两个错位的径向渐变,近看无噪点,远看有呼吸感 */
+    radial-gradient(1200px 600px at 85% -10%, rgba(43, 63, 224, .035), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, rgba(24, 26, 31, .03), transparent 55%),
+    var(--bg);
+  background-attachment: fixed;
   color: var(--text);
   -webkit-font-smoothing: antialiased;
-  /* Mac 下字体更细腻 */
+  text-rendering: optimizeLegibility;
 }
 
-/* 让按钮/输入框继承 body 字体,否则浏览器会给它们默认的等宽小字体 */
-button,
-input,
-textarea {
-  font: inherit;
-  color: inherit
-}
+button, input, textarea { font: inherit; color: inherit }
+button { cursor: pointer }
+a { color: var(--primary); text-decoration: none }
+a:hover { text-decoration: underline }
 
-button {
-  cursor: pointer
-}
+::selection { background: var(--primary-soft) }
 
-a {
-  color: var(--primary)
-}
+/* 细滚动条:和内容融为一体,不用默认的粗灰条 */
+* { scrollbar-width: thin; scrollbar-color: rgba(24, 26, 31, .18) transparent }
+*::-webkit-scrollbar { width: 8px; height: 8px }
+*::-webkit-scrollbar-thumb { background: rgba(24, 26, 31, .16); border-radius: 8px }
+*::-webkit-scrollbar-thumb:hover { background: rgba(24, 26, 31, .28) }
+*::-webkit-scrollbar-track { background: transparent }
 
-/* 统一输入框外观:三个页面都用这套 */
-input,
-textarea {
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+/* 输入框:发丝描边,焦点时才请出钴蓝 */
+input, textarea {
+  padding: 10px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
   background: #fff;
   outline: none;
-  transition: border-color .15s, box-shadow .15s;
+  transition: border-color .18s var(--ease), box-shadow .18s var(--ease);
 }
 
-/* 焦点态:边框变主色 + 一圈淡蓝光晕,用户能看清当前在哪个输入框 */
-input:focus,
-textarea:focus {
+input:focus, textarea:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, .15);
+  box-shadow: 0 0 0 3px var(--primary-soft);
 }
 
-/* 禁用态:变灰 + 禁止点击,给"提交中/请求中"用 */
-input:disabled,
-textarea:disabled {
-  background: #f3f4f6;
-  cursor: not-allowed
-}
+input:disabled, textarea:disabled { background: #f3f2ee; cursor: not-allowed }
+button:disabled { opacity: .5; cursor: not-allowed }
 
-button:disabled {
-  opacity: .55;
-  cursor: not-allowed
-}
-
-/* ---------- 3. 登录页 ---------- */
-.login-container {
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-  /* grid 的居中一行搞定,比 flex 少写两行 */
-  background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%);
-  padding: 24px;
-}
-
-.login-box {
-  width: 100%;
-  max-width: 360px;
-  background: var(--card);
-  border-radius: 16px;
-  padding: 36px 32px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, .22);
-  text-align: center;
-}
-
-.login-box h1 {
-  margin: 0 0 6px;
-  font-size: 26px;
-  letter-spacing: .5px
-}
-
-.subtitle {
-  margin: 0 0 26px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-/* 登录表单:纵向排列 + 元素间距 */
-.login-box form {
-  display: flex;
-  flex-direction: column;
-  gap: 12px
-}
-
-.login-box input {
-  width: 100%
-}
-
-.login-box button[type="submit"] {
-  padding: 11px;
-  border: none;
-  border-radius: 8px;
-  background: var(--primary);
-  color: #fff;
-  font-weight: 600;
-  transition: background .15s;
-}
-
-.login-box button[type="submit"]:hover:not(:disabled) {
-  background: var(--primary-dark)
-}
-
-/* .error 与 .error-text 都是红字提示,合并成一条规则;margin-top 用小间距贴身显示 */
-.error,
-.error-text {
+/* 红字提示(两处共用一个类,统一间距与颜色) */
+.error, .error-text {
   color: var(--danger);
   font-size: 13px;
   margin-top: 8px;
   text-align: left;
 }
 
-/* ---------- 4. 通用页面骨架(列表页/详情页共用) ---------- */
+/* ---------- 4. 登录页 ---------- */
+.login-container {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
 
-/* 难点:这里必须用定高(height)而不是 min-height。
-   聊天面板要靠 flex:1 撑满剩余空间、内部消息区再自己滚动,
-   如果外层高度是"最小高度",内容一多页面就会被撑高,
-   消息区永远滚不到底(会跟着页面一起变长)。
-   overflow:hidden 同时兜住意外溢出的情况。 */
+.login-box {
+  position: relative;
+  width: 100%;
+  max-width: 380px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 44px 36px 36px;
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+  animation: rise .5s var(--ease) both;
+}
+
+/* 卡片顶部一条钴蓝细线:唯一的高饱和元素,做品牌识别 */
+.login-box::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 36px; right: 36px;
+  height: 3px;
+  border-radius: 0 0 3px 3px;
+  background: var(--primary);
+}
+
+.login-box h1 {
+  margin: 0 0 8px;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.subtitle { margin: 0 0 30px; color: var(--muted); font-size: 13px; letter-spacing: .5px }
+
+.login-box form { display: flex; flex-direction: column; gap: 12px }
+.login-box input { width: 100% }
+
+/* 主按钮样式在所有页面复用同一套参数(墨色实心) */
+.login-box button[type="submit"],
+.create-form button,
+.input-area button,
+.modal-actions button {
+  padding: 11px 22px;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius-sm);
+  background: var(--ink);
+  color: #fff;
+  font-weight: 600;
+  letter-spacing: .5px;
+  transition: background .18s var(--ease), transform .18s var(--ease), box-shadow .18s var(--ease);
+}
+
+.login-box button[type="submit"] { width: 100% }
+
+.login-box button[type="submit"]:hover:not(:disabled),
+.create-form button:hover:not(:disabled),
+.input-area button:hover:not(:disabled),
+.modal-actions button:hover:not(:disabled) {
+  background: var(--ink-hover);
+  border-color: var(--ink-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(24, 26, 31, .18);
+}
+
+.login-box button[type="submit"]:active:not(:disabled),
+.create-form button:active:not(:disabled),
+.input-area button:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+/* 次要动作(返回访客演示/取消):白底描边,视觉权重低于主按钮 */
+.cancel-btn {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--muted);
+  font-size: 14px;
+  transition: all .18s var(--ease);
+}
+.cancel-btn:hover { border-color: var(--ink); color: var(--ink) }
+
+/* ---------- 5. 页面骨架(列表页/详情页共用) ---------- */
+
+/* 难点:必须用定高 height 而不是 min-height。
+   聊天面板靠 flex:1 撑满剩余空间、消息区内部滚动,
+   外层若是 min-height,内容一多页面被撑高,消息区永远滚不到底。*/
 .page {
   height: 100vh;
   display: flex;
@@ -176,111 +202,139 @@ button:disabled {
   overflow: hidden;
 }
 
-/* 移动端:100vh 会被浏览器地址栏/软键盘撑破,100dvh 是"动态可视高度",优先用它 */
 @supports (height:100dvh) {
-  .page {
-    height: 100dvh
-  }
+  /* 移动端:100dvh 是扣掉地址栏/软键盘后的真实可视高度 */
+  .page { height: 100dvh }
 }
 
 .header {
   flex: 0 0 auto;
-  /* 顶栏不参与伸缩,固定自身高度 */
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 24px;
-  background: var(--card);
+  padding: 16px 32px;
+  background: rgba(255, 255, 255, .82);
+  backdrop-filter: blur(8px);      /* 内容滚过顶栏下方时保持可读 */
+  -webkit-backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border);
 }
 
+/* 品牌标记:标题前的钴蓝小方块,全站唯一重复出现的品牌元素 */
 .header h1 {
   margin: 0;
-  font-size: 20px
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-/* 难点:content 是"剩余空间"的容器,必须同时写 flex:1 + min-height:0。
-   flex 默认 min-height:auto,子元素想收缩时会被内容顶住,
-   少写 min-height:0 的话,聊天面板的 messages 区就滚不动了(经典 flex 滚动失灵 bug)。*/
+.header h1::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--primary);
+}
+
+/* 难点:content 是剩余空间容器,必须 flex:1 + min-height:0 同时写。
+   flex 默认 min-height:auto,子元素被内容顶住就收缩不了,
+   聊天面板 messages 区的 overflow-y 会整个失灵(经典 flex 滚动 bug)。*/
 .content {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 24px;
+  gap: 18px;
+  padding: 26px 32px;
   overflow-y: auto;
-  /* 列表页仓库多时,整体区域滚动 */
+  max-width: 1080px;      /* 宽屏下内容居中,左右留白,视觉更"大气" */
+  width: 100%;
+  margin: 0 auto;
 }
 
-/* 顶栏按钮(返回列表/退出登录)共用 */
-.back-btn,
-.logout-btn {
-  padding: 8px 14px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+/* 页面内容入场:统一从下方 8px 浮现,一次编排好过满屏零散动效 */
+.content > * { animation: rise .4s var(--ease) both }
+.content > *:nth-child(2) { animation-delay: .06s }
+.content > *:nth-child(3) { animation-delay: .12s }
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px) }
+  to { opacity: 1; transform: translateY(0) }
+}
+
+/* 顶栏右侧动作区(返回/登录/退出/自带Key 都进这一组) */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* 次级按钮统一描边风:返回列表/退出登录/管理员登录 */
+.back-btn, .logout-btn, .api-key-btn {
+  padding: 8px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
   background: #fff;
-  color: var(--muted);
+  color: var(--text);
   font-size: 13px;
-  transition: all .15s;
+  transition: all .18s var(--ease);
 }
 
-.back-btn:hover,
-.logout-btn:hover {
-  border-color: var(--primary);
-  color: var(--primary);
+.back-btn:hover, .logout-btn:hover, .api-key-btn:hover {
+  border-color: var(--ink);
+  transform: translateY(-1px);
 }
 
-/* ---------- 5. 仓库列表页 ---------- */
-.create-section,
-.repo-list-section {
+/* 已配置自带 Key:绿色描边 + 浅绿底,一眼确认"花的是自己的钱" */
+.api-key-on {
+  padding: 8px 16px;
+  border: 1px solid var(--ok);
+  border-radius: var(--radius-sm);
+  background: var(--ok-soft);
+  color: var(--ok);
+  font-size: 13px;
+  transition: all .18s var(--ease);
+}
+.api-key-on:hover { transform: translateY(-1px) }
+
+/* ---------- 6. 仓库列表页 ---------- */
+.create-section, .repo-list-section, .stats-section {
   background: var(--card);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 20px;
+  padding: 24px 26px;
   box-shadow: var(--shadow);
 }
 
-.create-section h2,
-.repo-list-section h2 {
+/* 区域标题:左对齐 + 小号强调线,替代表格化的大标题 */
+.create-section h2, .repo-list-section h2, .stats-head h2 {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
+  letter-spacing: .3px;
 }
 
 .create-form {
   display: flex;
-  flex-wrap: wrap;
-  /* 窄屏时按钮自动换行 */
+  flex-wrap: wrap;   /* 窄屏时按钮自动换行 */
   gap: 10px;
   margin-top: 14px;
 }
 
 .create-form input {
-  flex: 1 1 220px;
-  /* 可伸缩、基准 220px:两个输入框平分一行 */
+  flex: 1 1 240px;   /* 两个输入框平分一行,基准 240px 可伸缩 */
   min-width: 180px;
 }
 
-.create-form button {
-  flex: 0 0 auto;
-  padding: 10px 18px;
-  border: none;
-  border-radius: 8px;
-  background: var(--primary);
-  color: #fff;
-  font-weight: 600;
-  transition: background .15s;
-}
-
-.create-form button:hover:not(:disabled) {
-  background: var(--primary-dark)
-}
+.create-form button { flex: 0 0 auto }
 
 .repo-list {
   list-style: none;
-  /* 去掉 <li> 自带的圆点 */
-  margin: 14px 0 0;
+  margin: 16px 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
@@ -292,159 +346,108 @@ button:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 14px;
+  padding: 14px 16px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: border-color .15s, background .15s;
+  transition: border-color .18s var(--ease), transform .18s var(--ease), box-shadow .18s var(--ease);
 }
 
 .repo-item:hover {
-  border-color: var(--primary);
-  background: #f8fafc;
-  /* 悬停给一点点底色,提示"这一行可点" */
+  border-color: var(--border-strong);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow);
 }
 
-/* 难点:repo-info 必须写 min-width:0。
-   flex 子项的默认最小宽度是"内容宽度",长 URL 会把整行撑出屏幕;
-   min-width:0 允许它被压缩,下面的 repo-url 的 ellipsis 才会真正生效。*/
-.repo-info {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-
-.repo-name {
-  font-weight: 600
-}
-
+/* 难点:repo-info 必须 min-width:0。
+   flex 子项默认最小宽度=内容宽度,长 URL 会把整行撑出屏幕;
+   min-width:0 允许收缩,下面 repo-url 的 ellipsis 才生效。*/
+.repo-info { display: flex; flex-direction: column; gap: 4px; min-width: 0 }
+.repo-name { font-weight: 600; font-size: 15px }
 .repo-url {
+  font-family: var(--font-mono);
   font-size: 12px;
   color: var(--muted);
   white-space: nowrap;
-  /* 不换行 */
   overflow: hidden;
   text-overflow: ellipsis;
-  /* 超长显示"..." */
 }
 
+/* 状态:彩色小圆点 + 文字。颜色来自 JSX 行内 style,
+   ::before 用 currentColor 自动跟色,不用为每种状态写一套 */
 .repo-status {
-  flex: 0 0 auto;
-  /* 状态文字不参与压缩,四字必须完整显示 */
+  flex: 0 0 auto;   /* 不参与压缩,状态四字必须完整显示 */
   font-size: 13px;
-  font-weight: 600;
-}
-
-/* 列表行右侧:状态 + 删除按钮。
-   flex:0 0 auto 让这一块不参与压缩,长仓库名才会去挤压左边的 repo-info */
-.repo-item-right {
+  font-weight: 500;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 7px;
+}
+
+.repo-status::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
   flex: 0 0 auto;
 }
 
-/* 删除操作区:确认态会多出一个"取消",用 flex 横排 */
-.repo-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
+/* 列表行右侧:状态 + 删除按钮,不参与压缩 */
+.repo-item-right { display: flex; align-items: center; gap: 12px; flex: 0 0 auto }
+.repo-actions { display: flex; align-items: center; gap: 6px }
 
-/* 删除按钮:描边红字,平时不抢眼,悬停才变实心 */
+/* 删除三态:描边红(平时不抢眼) -> 实心红(确认) / 描边灰(取消) */
 .repo-del-btn {
-  padding: 4px 10px;
-  border: 1px solid #fca5a5;
-  border-radius: 6px;
+  padding: 5px 12px;
+  border: 1px solid #eec9c2;
+  border-radius: 8px;
   background: #fff;
-  color: #dc2626;
+  color: var(--danger);
   font-size: 12px;
-  cursor: pointer;
-  transition: all .15s;
+  transition: all .18s var(--ease);
 }
+.repo-del-btn:hover:not(:disabled) { background: var(--danger); border-color: var(--danger); color: #fff }
+.repo-del-btn:disabled { border-color: var(--border); color: var(--faint); cursor: not-allowed }
 
-.repo-del-btn:hover:not(:disabled) {
-  background: #dc2626;
-  border-color: #dc2626;
-  color: #fff;
-}
-
-/* 禁用态(解析中):置灰 + 禁止手势,鼠标悬停能用 title 看到原因 */
-.repo-del-btn:disabled {
-  border-color: var(--border);
-  color: #c0c4cc;
-  cursor: not-allowed;
-  background: #fff;
-}
-
-/* 二次确认:实心红,和上面的"删除"区分开,避免误点 */
 .repo-del-confirm {
-  padding: 4px 10px;
-  border: 1px solid #dc2626;
-  border-radius: 6px;
-  background: #dc2626;
+  padding: 5px 12px;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  background: var(--danger);
   color: #fff;
   font-size: 12px;
-  cursor: pointer;
 }
+.repo-del-confirm:disabled { opacity: .6; cursor: not-allowed }
 
-.repo-del-confirm:disabled {
-  opacity: .6;
-  cursor: not-allowed;
-}
-
-/* 取消:灰色描边,视觉权重最低 */
 .repo-del-cancel {
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
   background: #fff;
   color: var(--muted);
   font-size: 12px;
-  cursor: pointer;
 }
+.repo-del-cancel:hover:not(:disabled) { border-color: var(--ink); color: var(--ink) }
 
-.repo-del-cancel:hover:not(:disabled) {
-  border-color: var(--primary);
-  color: var(--primary);
-}
-
-/* ---------- 6. 仓库详情页:进度区 ---------- */
+/* ---------- 7. 仓库详情页:进度区 ---------- */
 .progress-section {
   background: var(--card);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 16px 20px;
+  padding: 16px 24px;
   box-shadow: var(--shadow);
-  flex: 0 0 auto;
-  /* 进度条固定高度,不跟聊天面板抢空间 */
+  flex: 0 0 auto;   /* 固定高度,不和聊天面板抢空间 */
 }
 
-.progress-info {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-}
+.progress-info { display: flex; align-items: center; gap: 14px; flex-wrap: wrap }
+.stage-label { font-weight: 600; font-size: 15px }
 
-.stage-label {
-  font-weight: 600;
-  font-size: 15px
-}
+.hint { margin: 8px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6 }
 
-.hint {
-  margin: 8px 0 0;
-  color: var(--muted);
-  font-size: 13px;
-}
+/* ---------- 8. 聊天面板 ---------- */
 
-/* ---------- 7. 聊天面板 ---------- */
-
-/* 难点:chat-panel 是"填满剩余高度"的列容器,
-   flex:1 + min-height:0 两个都要,道理和 .content 相同。
-   少 min-height:0,messages 的 overflow-y 就会失效。*/
-/* ---------- 9.5 问答历史会话栏(聊天面板左侧) ---------- */
-/* 外层:左栏固定宽 + 右栏自适应;min-height:0 让内部的滚动区正常生效 */
+/* 外层:左栏固定宽 + 右栏自适应;min-height:0 让内部滚动区生效 */
 .chat-layout {
   flex: 1;
   min-height: 0;
@@ -454,120 +457,73 @@ button:disabled {
 }
 
 .chat-history {
-  flex: 0 0 240px;
-  /* 只固定宽、不参与拉伸,聊天区才能吃掉剩余宽度 */
-  width: 240px;
+  flex: 0 0 250px;   /* 只固定宽,不参与拉伸,聊天区吃掉剩余宽度 */
+  width: 250px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 14px;
+  padding: 16px;
   background: var(--card);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  /* 会话多时左栏自己滚动,不把整个页面撑长 */
-  max-height: calc(100vh - 220px);
+  max-height: calc(100vh - 220px); /* 会话多时左栏自己滚,不撑长页面 */
   overflow-y: auto;
 }
 
-.chat-history-head h3 {
-  margin: 0;
-  font-size: 15px;
-  color: var(--text);
-}
+.chat-history-head h3 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: .3px }
 
-.chat-history-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
+.chat-history-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px }
 
 .chat-history-item {
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  padding: 9px 10px;
+  padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: background .15s, border-color .15s;
+  transition: all .18s var(--ease);
 }
 
-.chat-history-item:hover {
-  background: #f5f7fa
-}
+.chat-history-item:hover { border-color: var(--border-strong); background: #fbfaf7 }
 
-/* 当前正在查看的会话:蓝色描边+浅蓝底,一眼能看出"我在看哪段" */
+/* 当前查看的会话:墨色左边条 + 浅底,一眼定位"我在看哪段" */
 .chat-history-item.active {
-  border-color: var(--primary);
-  background: #eff6ff
+  border-color: var(--ink);
+  background: #fbfaf7;
+  box-shadow: inset 3px 0 0 var(--ink);
 }
 
 /* min-width:0 是省略号生效的前提:flex 子项默认不会收缩到内容以下 */
-.chat-history-main {
-  flex: 1;
-  min-width: 0
-}
-
+.chat-history-main { flex: 1; min-width: 0 }
 .chat-history-title {
-  font-size: 14px;
-  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis
+  text-overflow: ellipsis;
 }
+.chat-history-time { margin-top: 4px; font-size: 12px; color: var(--faint) }
 
-.chat-history-time {
-  margin-top: 3px;
-  font-size: 12px;
-  color: var(--muted)
-}
-
-.chat-history-actions {
-  display: flex;
-  gap: 4px;
-  flex-shrink: 0
-}
-
+.chat-history-actions { display: flex; gap: 4px; flex-shrink: 0 }
 .chat-history-del {
-  border: none;
-  background: transparent;
-  color: var(--danger);
-  font-size: 12px;
-  padding: 2px 4px;
-  cursor: pointer
+  border: none; background: transparent; color: var(--danger);
+  font-size: 12px; padding: 2px 4px;
 }
-
-.chat-history-del:hover {
-  text-decoration: underline
-}
-
+.chat-history-del:hover { text-decoration: underline }
 .chat-history-del-confirm {
-  border: none;
-  background: var(--danger);
-  color: #fff;
-  border-radius: 4px;
-  font-size: 12px;
-  padding: 3px 7px;
-  cursor: pointer
+  border: none; background: var(--danger); color: #fff;
+  border-radius: 6px; font-size: 12px; padding: 3px 8px;
 }
-
-.chat-history-del-confirm:disabled {
-  opacity: .6;
-  cursor: not-allowed
-}
-
+.chat-history-del-confirm:disabled { opacity: .6; cursor: not-allowed }
 .chat-history-cancel {
-  border: none;
-  background: transparent;
-  color: var(--muted);
-  font-size: 12px;
-  padding: 3px 4px;
-  cursor: pointer
+  border: none; background: transparent; color: var(--muted);
+  font-size: 12px; padding: 3px 4px;
 }
+.chat-history-cancel:hover { color: var(--ink) }
 
+/* 难点:chat-panel 是"填满剩余高度"的列容器,flex:1 + min-height:0 缺一不可 */
 .chat-panel {
   flex: 1;
   min-height: 0;
@@ -575,98 +531,90 @@ button:disabled {
   flex-direction: column;
   gap: 12px;
   background: var(--card);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 16px;
+  padding: 20px 22px;
   box-shadow: var(--shadow);
 }
 
 /* 消息滚动区:唯一允许纵向滚动的层 */
-.messages {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-}
+.messages { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; padding-right: 4px }
 
 /* 一条消息 = 角色标签 + 气泡体 */
-.message {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 16px;
-  align-items: flex-start;
-}
-
-/* 用户消息整体镜像排列:气泡贴右、标签贴左,聊天软件通用视觉 */
-.message.user {
-  flex-direction: row-reverse
-}
+.message { display: flex; gap: 10px; margin-bottom: 18px; align-items: flex-start }
+.message.user { flex-direction: row-reverse }
 
 .message-role {
   flex: 0 0 auto;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: #eef2ff;
-  color: var(--primary);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-/* 难点:气泡限制最大宽度(80%),否则长代码块会把页面横向撑爆;
-   同时 min-width:0 允许气泡在 flex 里被压缩。*/
-.message-body {
-  max-width: 80%;
-  min-width: 0;
-  padding: 10px 14px;
-  border-radius: 12px;
-  font-size: 14px;
+  padding: 3px 10px;
+  border-radius: 8px;
+  background: #f0efeb;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
   line-height: 1.7;
+}
+
+/* 用户侧的角色标签翻转为墨色,与气泡同色,左右镜像更整齐 */
+.message.user .message-role { background: var(--ink); color: #fff }
+
+/* 难点:气泡限制最大宽度,长代码块不把页面横向撑爆;
+   min-width:0 允许气泡在 flex 里被压缩 */
+.message-body {
+  max-width: 82%;
+  min-width: 0;
+  padding: 12px 16px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.75;
   word-break: break-word;
-  /* 超长英文标识符/URL 也能断行 */
 }
 
+/* 用户气泡:墨色实心,与主按钮同色系,视觉锚点统一 */
 .message.user .message-body {
-  background: #e8f0fe;
-  border-top-right-radius: 4px;
-  /* 贴角做小,模拟气泡"尖"指向发送者 */
+  background: var(--ink);
+  color: #f2f2f0;
+  border-top-right-radius: 4px;  /* 贴角做小,气泡"尖"指向发送者 */
 }
 
+/* AI 气泡:白底发丝描边,内容为主,不染色 */
 .message.assistant .message-body {
-  background: #f8fafc;
+  background: #fff;
   border: 1px solid var(--border);
   border-top-left-radius: 4px;
 }
 
-/* 难点:用户输入必须保留换行。
-   默认 HTML 会把连续换行/空格压成一个,多行问题会糊成一行;
-   pre-wrap 保留换行与空格,同时仍会自动折行。*/
-.plain-text {
-  white-space: pre-wrap;
-}
+/* 用户气泡内的行内代码/链接要在深底上可读 */
+.message.user .message-body code { background: rgba(255, 255, 255, .14); color: #fff }
+.message.user .message-body a { color: #b9c4ff }
 
-/* ---------- 8. 引用来源卡片 ---------- */
+/* 用户输入必须保留换行:默认 HTML 会把连续换行压成一个 */
+.plain-text { white-space: pre-wrap }
+
+/* 引用来源卡:浅底 + 发丝描边,不用左侧色条,更克制 */
 .sources {
-  margin-bottom: 10px;
-  padding: 8px 10px;
-  background: #fff;
-  border-left: 3px solid var(--primary);
-  /* 左侧色条,一眼识别是"引用"而不是正文 */
-  border-radius: 6px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  background: #fbfaf7;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
 }
 
 .sources-title {
   margin: 0 0 6px;
-  color: var(--muted);
-  font-size: 12px;
+  color: var(--faint);
+  font-size: 11px;
   font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
 }
 
-/* details/summary 是浏览器原生折叠面板,这里只做外观,不需要任何 JS */
-/* summary改为flex布局:左路径右链接,两端对齐 */
+/* details/summary 原生折叠面板,只做外观不需要 JS */
 .source-card summary {
   cursor: pointer;
   font-size: 12px;
-  color: #374151;
+  color: var(--text);
   padding: 3px 0;
   display: flex;
   align-items: center;
@@ -674,492 +622,188 @@ button:disabled {
   gap: 8px;
 }
 
-/* 自绘展开箭头:summary改成flex后浏览器原生的三角标记会丢失,自己画一个 */
-.source-card summary::before{
-  content:'▸';
-  flex:0 0 auto;
-  color:var(--muted);
-  transition:transform .15s;
-}
-/* [open]:details展开时浏览器自动加的属性选择器,箭头转90度 */
-.source-card[open] summary::before{transform:rotate(90deg)}
-
-/* 路径文本:允许收缩+断行,长路径不把链接挤出卡片 */
-.source-path{
-  flex:1;            /* 占满中间,把箭头和链接推到两端 */
-  min-width:0;
-  word-break:break-all;
-}
-
-/* 跳转链接:不收缩、不换行,hover给下划线提示可点 */
-.source-link {
+/* 自绘展开箭头:summary 改 flex 后原生三角标记丢失 */
+.source-card summary::before {
+  content: '▸';
   flex: 0 0 auto;
-  white-space: nowrap;
-  color: var(--primary);
-  text-decoration: none;
-  font-size: 12px;
+  color: var(--faint);
+  transition: transform .18s var(--ease);
 }
+.source-card[open] summary::before { transform: rotate(90deg) }
 
-.source-link:hover {
-  text-decoration: underline
-}
+/* 路径文本:等宽字体,允许收缩+断行,长路径不把链接挤出卡片 */
+.source-path { flex: 1; min-width: 0; word-break: break-all; font-family: var(--font-mono); font-size: 11.5px }
+.source-link { flex: 0 0 auto; white-space: nowrap; font-size: 12px }
+.source-link:hover { text-decoration: underline }
 
 .source-preview {
   margin: 6px 0 0;
-  padding: 8px;
-  background: #f3f4f6;
-  border-radius: 6px;
+  padding: 10px 12px;
+  background: #f3f2ee;
+  border-radius: 8px;
+  font-family: var(--font-mono);
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.6;
   max-height: 200px;
-  /* 摘要最长 200px 高,超高滚动 */
   overflow: auto;
-  white-space: pre-wrap;
-  /* 代码摘要保留原始缩进与换行 */
+  white-space: pre-wrap;  /* 代码摘要保留原始缩进与换行 */
   word-break: break-all;
 }
 
-/* ---------- 9. Markdown 正文样式 ---------- */
-/* react-markdown 渲染出来的是原生 HTML,没有额外包裹层,只能按标签选择器打样式 */
-.message-body h1,
-.message-body h2,
-.message-body h3 {
-  margin: 16px 0 8px;
-  line-height: 1.4;
-}
-
-.message-body h1 {
-  font-size: 20px
-}
-
-.message-body h2 {
-  font-size: 17px
-}
-
-.message-body h3 {
-  font-size: 15px
-}
-
-.message-body p {
-  margin: 8px 0
-}
-
-.message-body ul,
-.message-body ol {
-  margin: 8px 0;
-  padding-left: 22px
-}
+/* ---------- 8.5 Markdown 正文(按标签选择器,无包裹层可用) ---------- */
+.message-body h1, .message-body h2, .message-body h3 { margin: 16px 0 8px; line-height: 1.4 }
+.message-body h1 { font-size: 20px }
+.message-body h2 { font-size: 17px }
+.message-body h3 { font-size: 15px }
+.message-body p { margin: 8px 0 }
+.message-body ul, .message-body ol { margin: 8px 0; padding-left: 22px }
 
 .message-body blockquote {
   margin: 8px 0;
   padding: 4px 12px;
-  border-left: 3px solid var(--border);
+  border-left: 3px solid var(--border-strong);
   color: var(--muted);
 }
 
-/* 表格是 GFM 扩展(remark-gfm 打开才支持),不加 border-collapse 会变成双线框 */
+/* 表格(GFM):不加 border-collapse 会变双线框 */
 .message-body table {
   border-collapse: collapse;
   margin: 8px 0;
   font-size: 13px;
-  display: block;
-  /* 表格过长时允许横向滚动 */
+  display: block;       /* 过长时允许横向滚动 */
   overflow-x: auto;
 }
+.message-body th, .message-body td { border: 1px solid var(--border); padding: 6px 10px; text-align: left }
+.message-body th { background: #fbfaf7 }
+.message-body img { max-width: 100%; border-radius: 8px }
 
-.message-body th,
-.message-body td {
-  border: 1px solid var(--border);
-  padding: 6px 10px;
-  text-align: left;
-}
-
-.message-body img {
-  max-width: 100%;
-  border-radius: 6px
-}
-
-/* 行内代码(反引号包住的短片段):灰底小圆角 */
+/* 行内代码:浅墨底 + 等宽字体 */
 .message-body code {
-  background: rgba(0, 0, 0, .06);
-  padding: 2px 5px;
-  border-radius: 4px;
-  font-family: ui-monospace, Consolas, monospace;
-  font-size: 13px;
+  background: rgba(24, 26, 31, .06);
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
 }
 
-/* 流式生成阶段的代码块(默认渲染器,还没换 shiki):浅色底 + 横向滚动 */
+/* 流式阶段的代码块(未换 shiki 前):浅底 + 横向滚动 */
 .message-body pre {
   margin: 10px 0;
   padding: 12px;
-  background: #f6f8fa;
-  border-radius: 8px;
+  background: #f3f2ee;
+  border-radius: var(--radius-sm);
   overflow-x: auto;
-  /* 长行横向滚,不要撑宽气泡 */
+  font-family: var(--font-mono);
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.6;
 }
+.message-body pre code { background: none; padding: 0 }
 
-.message-body pre code {
-  background: none;
-  padding: 0
-}
-
-/* 代码块内不再叠加行内样式 */
-
-/* ---------- 10. shiki 高亮代码块 ---------- */
-/* CodeBlock 组件会渲染成两种情况:
-   高亮完成 -> div.code-block 里塞 shiki 的 HTML(shiki 自带 <pre>)
-   还没完成 -> pre.code-block 直接铺纯文本
-   所以 padding 放在 .code-block 上,内层 <pre> 清零,两种形态都不重复留白。*/
+/* shiki 高亮代码块:深墨底。
+   CodeBlock 渲染成 div.code-block(shiki 自带 pre)或 pre.code-block(纯文本),
+   padding 放在 .code-block 上,内层 pre 清零,两种形态都不重复留白 */
 .code-block {
   margin: 12px 0;
   padding: 16px;
   background: var(--code-bg);
-  /* 与 shiki github-dark 的底色保持一致,避免闪色 */
-  color: #e1e4e8;
-  border-radius: 8px;
+  color: #e6e6e6;
+  border-radius: var(--radius-sm);
   overflow-x: auto;
+  font-family: var(--font-mono);
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.6;
 }
+.code-block pre { margin: 0; padding: 0; overflow-x: visible }
 
-.code-block pre {
-  margin: 0;
-  /* shiki 的 <pre> 自带 margin 会把圆角撑破 */
-  padding: 0;
-  overflow-x: visible;
-}
-
-/* ---------- 11. 流式光标 / 状态提示 / 输入区 ---------- */
-
-/* 打字机光标:1 秒一次"亮-灭",steps(2)让切换是硬跳变而不是渐隐,更像真终端 */
-.cursor {
-  display: inline-block;
-  width: 8px;
-  animation: blink 1s steps(2, start) infinite;
-}
+/* ---------- 8.6 流式光标 / 状态 / 输入区 ---------- */
+/* 打字机光标:steps(2) 硬跳变,比渐隐更像真终端 */
+.cursor { display: inline-block; width: 8px; animation: blink 1s steps(2, start) infinite }
 
 @keyframes blink {
-
-  0%,
-  49% {
-    opacity: 1
-  }
-
-  50%,
-  100% {
-    opacity: 0
-  }
+  0%, 49% { opacity: 1 }
+  50%, 100% { opacity: 0 }
 }
 
-.status-text {
-  margin: 0;
-  color: var(--muted);
-  font-size: 13px;
-}
+.status-text { margin: 0; color: var(--muted); font-size: 13px }
 
 .input-area {
   flex: 0 0 auto;
-  /* 输入区固定高度,始终可见 */
   display: flex;
-  align-items: flex-end;
-  /* 多行输入时按钮对齐底部,视觉更稳 */
+  align-items: flex-end;   /* 多行输入时按钮对齐底部 */
   gap: 10px;
-  padding-top: 12px;
+  padding-top: 14px;
   border-top: 1px solid var(--border);
 }
 
-/* 难点:resize:none 关掉浏览器右下角的拖拽手柄。
-   不关的话用户一拖 textarea,聊天面板布局就被撑乱。*/
+/* resize:none 关掉拖拽手柄,防止用户把布局拖乱 */
 .input-area textarea {
   flex: 1;
   resize: none;
   min-height: 52px;
-  max-height: 120px;
-  /* 超过后内部滚动,不无限长高 */
+  max-height: 140px;
   overflow-y: auto;
-  line-height: 1.5;
-  font-size: 14px;
+  line-height: 1.6;
 }
 
-.input-area button {
-  flex: 0 0 auto;
-  padding: 11px 22px;
-  border: none;
-  border-radius: 8px;
-  background: var(--primary);
-  color: #fff;
-  font-weight: 600;
-  transition: background .15s;
-}
+.input-area button { flex: 0 0 auto }
 
-.input-area button:hover:not(:disabled) {
-  background: var(--primary-dark)
-}
-
-/* ---------- 12. 窄屏适配 ---------- */
-@media (max-width:640px) {
-  .header {
-    padding: 12px 16px
-  }
-
-  .content {
-    padding: 14px;
-    gap: 12px
-  }
-
-  .create-section,
-  .repo-list-section {
-    padding: 16px
-  }
-
-  /* 小屏气泡放宽到 92%:角色标签和气泡挤在一行时,80% 会让正文太窄 */
-  .message-body {
-    max-width: 92%
-  }
-
-  .input-area {
-    padding-top: 10px
-  }
-
-  /* 小屏没有左右空间:历史会话栏改为横向一排放在聊天区上方,
-     限高并横向滚动,避免把消息区挤没 */
-  .chat-layout {
-    flex-direction: column
-  }
-
-  .chat-history {
-    width: 100%;
-    flex: 0 0 auto;
-    max-height: 180px
-  }
-
-  .chat-history-list {
-    flex-direction: row;
-    flex-wrap: wrap
-  }
-
-  .chat-history-item {
-    flex: 1 1 46%;
-    min-width: 0
-  }
-}
-
-/* ---------- 13. 访客模式:顶栏动作区 / 自带Key / 弹窗 ---------- */
-
-/* 顶栏右侧按钮组:把"自带Key + 登录/退出"两个按钮排成一行 */
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  /* flex-shrink:0 防止标题太长时把这组按钮挤扁 */
-  flex-shrink: 0;
-}
-
-/* 自带Key按钮:默认与返回/退出按钮同一套视觉 */
-.api-key-btn {
-  padding: 8px 14px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #fff;
-  color: var(--muted);
-  font-size: 13px;
-  transition: all .15s;
-  cursor: pointer;
-}
-
-.api-key-btn:hover {
-  border-color: var(--primary);
-  color: var(--primary);
-}
-
-/* 已配置状态:绿色,让访客一眼确认"我现在花的是自己的钱" */
-.api-key-on {
-  padding: 8px 14px;
-  border: 1px solid #16a34a;
-  border-radius: 8px;
-  background: #f0fdf4;
-  color: #16a34a;
-  font-size: 13px;
-  transition: all .15s;
-  cursor: pointer;
-}
-
-.api-key-on:hover {
-  background: #dcfce7;
-}
-
-/* 登录页"返回访客演示":与登录按钮同宽,主次分明(白底=次要动作) */
-.cancel-btn {
-  width: 100%;
-  margin-top: 12px;
-  padding: 10px 16px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #fff;
-  color: var(--muted);
-  font-size: 14px;
-  cursor: pointer;
-  transition: all .15s;
-}
-
-.cancel-btn:hover {
-  border-color: var(--primary);
-  color: var(--primary);
-}
-
-/* 弹窗遮罩:fixed 铺满视口,半透明黑,点击空白处关闭 */
+/* ---------- 9. 弹窗 ---------- */
 .modal-mask {
   position: fixed;
   inset: 0;
-  /* inset:0 等价于 top/right/bottom/left 都是 0,比写四个属性短 */
-  background: rgba(16, 24, 40, .45);
+  background: rgba(20, 22, 30, .45);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 16px;
-  z-index: 50;
-  /* z-index 高于页面内容,保证弹窗永远在最上层 */
+  z-index: 50;   /* 高于页面内容,弹窗永远在最上层 */
 }
 
 .modal {
   width: 460px;
   max-width: 100%;
   background: var(--card);
-  border-radius: var(--radius);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, .2);
-  padding: 22px;
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  padding: 24px 26px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  /* max-height + overflow:小屏(比如手机横屏)时内容超出,内部滚动而不是被截断 */
-  max-height: 90vh;
+  max-height: 90vh;   /* 小屏内容超出时内部滚动而不是被截断 */
   overflow-y: auto;
+  animation: rise .25s var(--ease) both;
 }
 
-.modal h3 {
-  margin: 0;
-  font-size: 16px
-}
+.modal h3 { margin: 0; font-size: 16px; font-weight: 600 }
+.modal label { display: block; margin-bottom: 4px; font-size: 13px; color: var(--muted) }
 
-/* 弹窗里的字段标题 */
-.modal label {
-  display: block;
-  margin-bottom: 4px;
-  font-size: 13px;
-  color: var(--muted)
-}
-
-.modal input {
-  width: 100%;
-  padding: 9px 11px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 13px;
-  /* box-sizing:border-box 让 padding 算进 width,
-     少了它 input 实际宽度会超出容器 22px(经典溢出 bug) */
-  box-sizing: border-box;
-}
-
-.modal input:focus {
-  outline: none;
-  border-color: var(--primary)
-}
+.modal input { width: 100%; font-size: 13px; box-sizing: border-box }
 
 /* 服务商预设按钮行 */
-.preset-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px
-}
-
+.preset-row { display: flex; flex-wrap: wrap; gap: 8px }
 .preset-btn {
-  padding: 6px 10px;
+  padding: 6px 12px;
   border: 1px solid var(--border);
-  border-radius: 6px;
-  background: #f9fafb;
+  border-radius: 8px;
+  background: #fbfaf7;
   color: var(--muted);
   font-size: 12px;
-  cursor: pointer;
-  transition: all .15s;
+  transition: all .18s var(--ease);
 }
-
-.preset-btn:hover {
-  border-color: var(--primary);
-  color: var(--primary);
-}
+.preset-btn:hover { border-color: var(--ink); color: var(--ink) }
 
 /* 弹窗底部按钮组:右对齐 */
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 4px
-}
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px }
+.modal-actions .ghost { background: #fff; border: 1px solid var(--border-strong); color: var(--text) }
+.modal-actions .ghost:hover:not(:disabled) { border-color: var(--ink) }
+.modal-actions .danger { background: #fff; border: 1px solid #eec9c2; color: var(--danger) }
+.modal-actions .danger:hover:not(:disabled) { background: var(--danger-soft); border-color: var(--danger) }
+.modal-actions button:disabled, .preset-btn:disabled, .api-key-btn:disabled { opacity: .6; cursor: not-allowed }
 
-.modal-actions button {
-  padding: 9px 16px;
-  border: none;
-  border-radius: 8px;
-  background: var(--primary);
-  color: #fff;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.modal-actions button:hover:not(:disabled) {
-  background: var(--primary-dark)
-}
-
-/* 次要动作(取消):白底描边,视觉权重低于主按钮 */
-.modal-actions .ghost {
-  background: #fff;
-  border: 1px solid var(--border);
-  color: var(--muted);
-}
-
-/* 危险动作(清除Key):红色描边,提醒不可逆 */
-.modal-actions .danger {
-  background: #fff;
-  border: 1px solid #fca5a5;
-  color: #dc2626;
-}
-
-/* 禁用态统一处理:变淡+禁止点击 */
-.modal-actions button:disabled,
-.preset-btn:disabled,
-.api-key-btn:disabled {
-  opacity: .6;
-  cursor: not-allowed;
-}
-
-@media (max-width:640px) {
-  /* 小屏顶栏按钮多,缩小内边距,避免标题被挤成两行 */
-  .header-actions button {
-    padding: 7px 10px;
-    font-size: 12px;
-  }
-
-  /* 弹窗占满可用宽度 */
-  .modal {
-    width: 100%;
-    padding: 18px
-  }
-}
-
-/* ---------- 14. 管理员数据看板 ---------- */
-
-/* 看板整块:与仓库列表区同一套卡片视觉,保证页面语言统一 */
-.stats-section {
-  background: var(--card);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
+/* ---------- 10. 管理员数据看板 ---------- */
+.stats-section { display: flex; flex-direction: column; gap: 16px }
 
 /* 头部一行:左标题/说明,右时间范围切换;窄屏自动换行 */
 .stats-head {
@@ -1167,101 +811,51 @@ button:disabled {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  /* wrap:宽度不够时把"切换按钮"整体折到下一行,而不是压扁标题 */
   flex-wrap: wrap;
 }
 
-.stats-head h2 {
-  margin: 0;
-  font-size: 16px
-}
+.stats-sub { margin: 4px 0 0; font-size: 12px; color: var(--muted); line-height: 1.5 }
 
-/* 说明文字:范围、更新时间、刷新频率 */
-.stats-sub {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: var(--muted);
-  line-height: 1.5;
-}
-
-.stats-tabs {
-  display: flex;
-  gap: 6px
-}
-
+.stats-tabs { display: flex; gap: 6px }
 .stats-tab {
-  padding: 6px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
   background: #fff;
   color: var(--muted);
   font-size: 12px;
-  cursor: pointer;
-  transition: all .15s;
+  transition: all .18s var(--ease);
 }
+.stats-tab:hover { border-color: var(--ink); color: var(--ink) }
+/* 选中态:实心墨色,与主按钮同一套语言 */
+.stats-tab.active { background: var(--ink); border-color: var(--ink); color: #fff }
 
-.stats-tab:hover {
-  border-color: var(--primary);
-  color: var(--primary);
-}
-
-/* 选中态:实心主色,和未选中的描边按钮形成明确对比 */
-.stats-tab.active {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: #fff;
-}
-
-/* 指标卡网格:auto-fit + minmax 让列数随宽度自适应,
-   比写死 4 列更稳:窄屏自动变 2 列,不用再写媒体查询调列数 */
+/* 指标卡网格:auto-fit + minmax 让列数随宽度自适应 */
 .stats-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
 }
 
 .stat-card {
-  background: #f9fafb;
+  background: #fbfaf7;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px;
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.stat-label {
-  font-size: 12px;
-  color: var(--muted)
-}
+.stat-label { font-size: 12px; color: var(--muted) }
+.stat-value { font-size: 26px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums }
 
-/* 数字用 tabular-nums?这里用大字号 + 加粗,一眼可读 */
-.stat-value {
-  font-size: 24px;
-  font-weight: 600;
-  line-height: 1.1;
-}
-
-/* 指标色:同一类数据用同一颜色,和下面柱状图的图例对应 */
-.stat-value.pink {
-  color: #db2777
-}
-
-.stat-value.blue {
-  color: #2563eb
-}
-
-.stat-value.green {
-  color: #16a34a
-}
-
-.stat-value.amber {
-  color: #d97706
-}
-
-.stat-value.purple {
-  color: #7c3aed
-}
+/* 指标色:同一类数据一个颜色,与柱状图图例对应 */
+.stat-value.pink { color: #c73556 }
+.stat-value.blue { color: var(--primary) }
+.stat-value.green { color: var(--ok) }
+.stat-value.amber { color: #c77a08 }
+.stat-value.purple { color: #6d3fd4 }
 
 /* 每日明细区:上方一条分隔线,和指标卡拉开层级 */
 .stats-bars {
@@ -1269,40 +863,16 @@ button:disabled {
   flex-direction: column;
   gap: 6px;
   border-top: 1px solid var(--border);
-  padding-top: 12px;
+  padding-top: 14px;
 }
 
-.stats-legend {
-  display: flex;
-  gap: 16px;
-  font-size: 12px;
-  color: var(--muted);
-  margin-bottom: 2px;
-}
+.stats-legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); margin-bottom: 2px }
+.stats-legend span { display: flex; align-items: center; gap: 6px }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block }
+.dot.visits { background: var(--primary) }
+.dot.questions { background: #c77a08 }
 
-.stats-legend span {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  display: inline-block;
-}
-
-.dot.visits {
-  background: #2563eb
-}
-
-.dot.questions {
-  background: #d97706
-}
-
-/* 一行 = 日期 + 两根柱子 + 数字标签。
-   三列固定宽度用 grid 对齐,不用 flex 手算间距 */
+/* 一行 = 日期 + 两根柱子 + 数字标签,grid 三列对齐 */
 .bar-row {
   display: grid;
   grid-template-columns: 96px 1fr 92px;
@@ -1310,71 +880,47 @@ button:disabled {
   align-items: center;
   font-size: 12px;
 }
+.bar-date { color: var(--muted); font-variant-numeric: tabular-nums }
 
-.bar-date {
-  color: var(--muted)
-}
-
-/* 柱子容器给一个浅灰底,即使某天数值为 0 也能看出"这一天存在" */
+/* 柱子容器给浅灰底:数值为 0 的日子也能看出"这一天存在" */
 .bar-group {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  background: #f3f4f6;
+  background: #f1f0ec;
   border-radius: 4px;
   padding: 3px 0;
 }
 
-.bar {
-  height: 8px;
-  border-radius: 3px;
-  /* width 由 JSX 的行内 style 控制(按峰值算百分比) */
-  transition: width .3s;
-}
-
-.bar.visits {
-  background: #2563eb
-}
-
-.bar.questions {
-  background: #d97706
-}
+.bar { height: 8px; border-radius: 3px; transition: width .3s var(--ease) }
+.bar.visits { background: var(--primary) }
+.bar.questions { background: #c77a08 }
 
 /* 数字标签右对齐 + 等宽数字,纵向扫一眼就能比较大小 */
-.bar-nums {
-  text-align: right;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
+.bar-nums { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums }
 
-.stats-note {
-  margin: 0;
-  font-size: 12px;
-  color: var(--muted);
-  line-height: 1.6;
-}
+.stats-note { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.6 }
 
-@media (max-width:640px) {
-  .stats-section {
-    padding: 16px
-  }
+/* ---------- 11. 窄屏适配 ---------- */
+@media (max-width: 640px) {
+  .header { padding: 12px 16px }
+  .content { padding: 14px 16px; gap: 12px }
+  .create-section, .repo-list-section, .stats-section { padding: 16px }
 
-  /* 小屏固定两列:auto-fit 在 320px 宽度下会退化成 1 列,信息太散 */
-  .stats-cards {
-    grid-template-columns: repeat(2, 1fr)
-  }
+  .message-body { max-width: 92% }   /* 小屏气泡放宽 */
+  .input-area { padding-top: 10px }
 
-  /* 收窄日期列和数字列,把宽度让给柱状图 */
-  .bar-row {
-    grid-template-columns: 80px 1fr 74px;
-    gap: 8px;
-  }
+  /* 小屏没有左右空间:历史会话栏改为聊天区上方一排,限高防挤压 */
+  .chat-layout { flex-direction: column }
+  .chat-history { width: 100%; flex: 0 0 auto; max-height: 180px }
+  .chat-history-list { flex-direction: row; flex-wrap: wrap }
+  .chat-history-item { flex: 1 1 46%; min-width: 0 }
 
-  .bar-nums {
-    font-size: 11px
-  }
+  .header-actions button { padding: 7px 10px; font-size: 12px }
+  .modal { width: 100%; padding: 18px }
 
-  .stat-value {
-    font-size: 20px
-  }
+  .stats-cards { grid-template-columns: repeat(2, 1fr) }
+  .bar-row { grid-template-columns: 80px 1fr 74px; gap: 8px }
+  .bar-nums { font-size: 11px }
+  .stat-value { font-size: 20px }
 }
