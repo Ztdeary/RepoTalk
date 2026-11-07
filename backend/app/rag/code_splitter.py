@@ -1,5 +1,6 @@
 import tree_sitter_language_pack as tsl # 导入tree-sitter语言包
 from tree_sitter import Parser # 导入tree-sitter解析器
+from functools import lru_cache # 缓存grammar探测结果,避免每个文件重复加载
 from pathlib import Path # 导入路径模块,比os.path更方便
 
 # 语言映射：文件后缀->tree-sitter 语言名
@@ -30,18 +31,21 @@ def get_parser(lang_name:str)->Parser:
   parser.language=tsl.get_language(lang_name) # 设置解析器的语言
   return parser # 返回解析器实例
 
-# 检查 grammar 是否已下载,避免阻塞下载
+# 检查 grammar 是否可用
+@lru_cache(maxsize=None)
 def _grammar_ready(lang_name:str)->bool:
-  """快速检查某个语言的 grammar 文件是否已缓存,不触发下载。"""
-  import os
+  """探测某个语言的 grammar 是否可用。
+
+  原来的实现扫描 tsl.cache_dir() 找 .so/.dll 文件——这只在 Windows 本地
+  下载缓存里成立;Linux 上 language-pack 的 grammar 随 wheel 安装、不在该目录,
+  于是每个文件都被误判为"无 grammar",整仓库静默降级成 _simple_split,
+  切出来的块会缺类体(如只剩 'class Demo:')。这里直接尝试加载,
+  成功即可用,失败才降级。
+  """
   try:
-    cd = tsl.cache_dir()
-    for f in os.listdir(cd):
-      if f.startswith(f'tree_sitter_{lang_name}') and f.endswith(('.so','.dylib','.dll')):
-        return True
+    return tsl.get_language(lang_name) is not None
   except Exception:
-    pass
-  return False
+    return False
 
 # 创建tree-sitter切分器
 def split_code_file(path:Path,repo_name:str,root:Path,max_chars:int=1200)->list[dict]:
