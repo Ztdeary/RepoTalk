@@ -216,19 +216,30 @@ def _simple_split(text:str, lang_name:str, repo_name:str, rel_path:Path, max_cha
   split_points=[0]
   for i, line in enumerate(lines):
     stripped=line.lstrip()
+    # 顶层 export 声明的关键字在 export 之后(如 export function/const/class),
+    # 直接按 "export " 也切一刀,否则整段导出代码会并成巨型块
+    if stripped.startswith("export "):
+      split_points.append(i)
+      continue
     for kw in keywords:
       if stripped.startswith(kw):
         split_points.append(i)
         break
 
-  if len(split_points)==1:
-    # 没有关键字,整个文件作为一个块
-    split_points.append(len(lines))
+  # 必须有 len(lines) 作为尾哨兵,否则最后一个关键字之后的代码会被整段丢掉。
+  # 典型踩坑:组件文件末尾的 return (<aside>...删除按钮...</aside>) 不含任何关键字,
+  # 于是"历史会话的删除按钮在哪"这类问题在索引里查不到对应代码。
+  split_points.append(len(lines))
+
+  # 去掉重复点(第0行本身是关键字时会出现两个0)并保证有序
+  split_points=sorted(set(split_points))
 
   # 按 split_points 切
   for i in range(len(split_points)-1):
     start=split_points[i]
-    end=split_points[i+1] if i+1<len(split_points) else len(lines)
+    end=split_points[i+1]
+    if end<=start:
+      continue
     chunk_text="\n".join(lines[start:end])
 
     # 超过 max_chars 就按行再切
