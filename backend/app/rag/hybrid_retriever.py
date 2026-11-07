@@ -277,6 +277,68 @@ def _search_literal_text(question:str,collection:str)->list:
     docs=[]
   return docs
 
+# =====界面元素定位检索=====
+# 解决"某个按钮/弹窗/页面在哪"这类问题:
+# 它们没有可粘贴的原文,也没有标识符,向量会被"删除"语义最浓的仓库删除逻辑带偏,
+# 而正确代码往往藏在某个超大组件的 JSX 片段里。
+# 做法:识别界面名词后,直接在前端组件文件里按"问题实词命中数"挑候选,
+# 再交给 rerank 定序——不做强制置顶,避免猜错时把错误文件塞给用户。
+_UI_NOUN_RE=re.compile(r"按钮|弹窗|对话框|输入框|下拉|菜单|标签|图标|组件|样式|页面|区域")
+# 疑问词/虚词:匹配块时它们只会带来噪声
+_UI_STOP={"的","了","是","在","哪","哪里","哪个","什么","怎么","如何","为什么",
+          "文件","代码","行号","位置","请","问","一下","这个","那个","还有","以及"}
+
+def _ui_words(question:str)->list[str]:
+  """抽取用于匹配界面块的实词,并去掉界面名词本身。
+
+  为什么去掉"按钮"两字:代码里写的是 <button>,正文不会出现"按钮",
+  留着它只会让所有块都得 0 分。
+  """
+  parts=[w for w in jieba.lcut(question) if len(w)>=2 and w.strip() not in _UI_STOP]
+  parts=[w for w in parts if not _UI_NOUN_RE.fullmatch(w)]
+  return list(dict.fromkeys(parts))[:6]
+
+def _search_ui_blocks(question:str,collection:str)->list:
+  """按实词命中数,从前端组件的 JSX 块里挑界面元素候选。"""
+  if not collection or not _UI_NOUN_RE.search(question):
+    return []
+  words=_ui_words(question)
+  if not words:
+    return []
+  dsn=re.sub(r"^postgresql\+[a-z0-9_]+://","postgresql://",settings.database_url)
+  scored=[]
+  try:
+    import psycopg
+    with psycopg.connect(dsn,connect_timeout=8) as conn:
+      with conn.cursor() as cur:
+        # 只在带 className 的前端块里找:没有 className 的多半是逻辑代码,
+        # 不会出现"按钮长什么样"这类答案
+        cur.execute(
+          """select e.document,e.cmetadata::text
+             from langchain_pg_embedding e
+             join langchain_pg_collection c on e.collection_id=c.uuid
+             where c.name=%s
+               and e.cmetadata->>'file_path' like %s
+               and e.document like %s
+             limit 400""",
+          (collection,"frontend/%","%className=%"),
+        )
+        for doc,meta_raw in cur.fetchall():
+          # 命中实词数就是相关度:例如"历史会话的删除按钮在哪"里
+          # 同时出现"历史""会话""删除"的块明显比只含"删除"的更可能就是答案
+          score=sum(1 for w in words if w in doc)
+          if score<2:
+            continue
+          scored.append((score,Document(page_content=doc,metadata=json.loads(meta_raw))))
+    scored.sort(key=lambda x:(-x[0],len(x[1].page_content)))
+    docs=[d for _,d in scored[:5]]
+    print(f"[hybrid] 界面候选:{[(d.metadata.get('file_path'),d.metadata.get('start_line')) for d in docs]}"
+          f" 实词={words}")
+  except Exception as exc:
+    print(f"[hybrid] 界面检索失败:{exc}")
+    return []
+  return docs
+
 # hybrid_search混合检索
 def hybrid_search(question:str,store,bm25:BM25Retriever)->list:
     """混合检索全流程:双路初检->RRF融合->重排精排。"""
@@ -296,6 +358,11 @@ def hybrid_search(question:str,store,bm25:BM25Retriever)->list:
     # 这类问题向量/BM25都不可靠,必须靠正文精确包含关系来保证召回
     exact_text_docs=_search_literal_text(question,getattr(store,"collection_name",""))
     print(f"[hybrid] 逐字候选:{[(d.metadata.get('file_path'),d.metadata.get('start_line')) for d in exact_text_docs]}")
+
+    # 第四路(前置):界面元素召回
+    # 用户问"某个按钮/弹窗/页面在哪"时,按问题实词在前端 JSX 块里挑候选;
+    # 不问界面元素时该路返回空,不产生额外开销
+    ui_docs=_search_ui_blocks(question,getattr(store,"collection_name",""))
 
     # 第三路:符号精确召回
     # 解决"高频词"问题:command 在tests里出现上百次,IDF被稀释,定义块进不了前50
@@ -333,7 +400,7 @@ def hybrid_search(question:str,store,bm25:BM25Retriever)->list:
     print(f"[hybrid] exact候选:{[d.metadata.get('symbol') for d in exact_docs]}")
     # 调试日志:确认到底捞到了哪些定义块
 
-    fused=rrf_fuse([vec_docs,kw_docs,exact_docs,exact_bm25,exact_text_docs])
+    fused=rrf_fuse([vec_docs,kw_docs,exact_docs,exact_bm25,exact_text_docs,ui_docs])
     # 两路列表丢进RRF融合函数,对应list[list]的传参格式,进行融合去重+按融合分排序
     if not fused: # 两路都没捞到,直接返回空,不拿空列表去调重排接口 return []
         return []
