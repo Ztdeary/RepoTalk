@@ -1,42 +1,46 @@
 /* ============================================================
  * index.css —— RepoTalk 全局样式表
- * 设计方向:「Paper & Ink / 编辑部排版」——
- * 暖纸底色 + 白卡片 + 发丝描边,墨色按钮,钴蓝只作点缀与焦点。
- * 字体:MiSans(中文,CDN 失败自动回落系统字体) + JetBrains Mono(代码)。
+ * 设计方向(ui-ux-pro-max 推荐):「Minimalism & Swiss Style」——
+ * 干净的中性灰底 + 白卡片 + 细描边,品牌蓝 #2563EB 作为唯一高饱和色,
+ * 清晰字级层级 + 克制的微交互(150~250ms),开发者工具气质。
+ * 字体:IBM Plex Sans(英文/数字) + 系统中文字体 + JetBrains Mono(代码)。
  * 组织方式:1)字体 2)设计变量 3)全局重置 4)登录 5)骨架 6)列表
  *          7)详情进度 8)聊天(历史栏/气泡/来源/Markdown/代码) 9)弹窗 10)看板
  * 带「难点」标记的地方是容易踩坑的布局约束,勿删。
  * ============================================================ */
 
 /* ---------- 1. 字体(CDN 加载失败时静默回落到系统字体,不阻塞渲染) ---------- */
-@import url("https://cdn.jsdelivr.net/npm/misans@4.1.0/lib/Normal/MiSans-Regular.min.css");
-@import url("https://cdn.jsdelivr.net/npm/misans@4.1.0/lib/Normal/MiSans-Demibold.min.css");
+@import url("https://cdn.jsdelivr.net/npm/@fontsource/ibm-plex-sans@5.1.0/400.css");
+@import url("https://cdn.jsdelivr.net/npm/@fontsource/ibm-plex-sans@5.1.0/500.css");
+@import url("https://cdn.jsdelivr.net/npm/@fontsource/ibm-plex-sans@5.1.0/600.css");
+@import url("https://cdn.jsdelivr.net/npm/@fontsource/ibm-plex-sans@5.1.0/700.css");
 @import url("https://cdn.jsdelivr.net/npm/@fontsource/jetbrains-mono@5.1.0/index.css");
 
 /* ---------- 2. 设计变量(换主题只改这里) ---------- */
 :root {
-  --bg: #f5f4f0;            /* 暖纸底,比纯灰更安静 */
+  /* 瑞士极简:中性 slate 灰做骨架,品牌蓝 #2563EB 做唯一强调色 */
+  --bg: #f8fafc;            /* slate-50,干净的中性浅灰底 */
   --card: #ffffff;
-  --border: #e7e4db;        /* 发丝描边,和纸底同色系,不抢眼 */
-  --border-strong: #d8d4c8; /* 需要更明确分隔时用(输入区/来源卡) */
-  --text: #181a1f;          /* 墨色 */
-  --muted: #6e7278;
-  --faint: #9ca0a6;
-  --primary: #2b3fe0;       /* 钴蓝:链接/焦点/active 状态 */
-  --primary-soft: rgba(43, 63, 224, .08);
-  --primary-dark: #1f31b8;
-  --ink: #181a1f;           /* 主按钮:墨黑实心,比蓝色更沉稳 */
-  --ink-hover: #2c2f36;
-  --danger: #c73527;
-  --danger-soft: #fdeceb;
-  --ok: #18853d;
-  --ok-soft: #eaf6ee;
-  --radius: 14px;
-  --radius-sm: 10px;
-  --shadow: 0 1px 2px rgba(24, 26, 31, .04), 0 8px 24px rgba(24, 26, 31, .05);
-  --shadow-lg: 0 24px 64px rgba(24, 26, 31, .18);
+  --border: #e2e8f0;        /* slate-200 发丝描边 */
+  --border-strong: #cbd5e1; /* slate-300,输入区/来源卡等更明确的分隔 */
+  --text: #0f172a;          /* slate-900 */
+  --muted: #64748b;         /* slate-500,与正文对比度 > 4.5:1 */
+  --faint: #94a3b8;         /* slate-400,仅辅助信息 */
+  --primary: #2563eb;       /* blue-600:品牌蓝,链接/焦点/active/主按钮 */
+  --primary-soft: rgba(37, 99, 235, .10);
+  --primary-dark: #1d4ed8;  /* blue-700,hover 加深一档 */
+  --ink: #2563eb;           /* 主按钮/选中态:实心品牌蓝 */
+  --ink-hover: #1d4ed8;
+  --danger: #dc2626;
+  --danger-soft: #fef2f2;
+  --ok: #16a34a;
+  --ok-soft: #f0fdf4;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 1px 2px rgba(15, 23, 42, .05);          /* 瑞士风:阴影极轻,靠描边分层 */
+  --shadow-lg: 0 16px 48px rgba(15, 23, 42, .16);
   --code-bg: #14161c;       /* 与 shiki github-dark 底色一致,防闪色 */
-  --font-sans: "MiSans", "MiSans-Demibold", "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  --font-sans: "IBM Plex Sans", "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, "Courier New", monospace;
   --ease: cubic-bezier(.4, 0, .2, 1); /* 统一缓动,微交互不显廉价 */
 }
@@ -48,12 +52,8 @@ body {
   margin: 0;
   font-family: var(--font-sans);
   font-size: 14px;
-  background:
-    /* 极淡的纸面纹理:两个错位的径向渐变,近看无噪点,远看有呼吸感 */
-    radial-gradient(1200px 600px at 85% -10%, rgba(43, 63, 224, .035), transparent 60%),
-    radial-gradient(900px 500px at -10% 110%, rgba(24, 26, 31, .03), transparent 55%),
-    var(--bg);
-  background-attachment: fixed;
+  /* 瑞士极简:纯色平底,不做纹理,内容即主角 */
+  background: var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -67,10 +67,10 @@ a:hover { text-decoration: underline }
 ::selection { background: var(--primary-soft) }
 
 /* 细滚动条:和内容融为一体,不用默认的粗灰条 */
-* { scrollbar-width: thin; scrollbar-color: rgba(24, 26, 31, .18) transparent }
+* { scrollbar-width: thin; scrollbar-color: rgba(15, 23, 42, .18) transparent }
 *::-webkit-scrollbar { width: 8px; height: 8px }
-*::-webkit-scrollbar-thumb { background: rgba(24, 26, 31, .16); border-radius: 8px }
-*::-webkit-scrollbar-thumb:hover { background: rgba(24, 26, 31, .28) }
+*::-webkit-scrollbar-thumb { background: rgba(15, 23, 42, .16); border-radius: 8px }
+*::-webkit-scrollbar-thumb:hover { background: rgba(15, 23, 42, .28) }
 *::-webkit-scrollbar-track { background: transparent }
 
 /* 输入框:发丝描边,焦点时才请出钴蓝 */
@@ -88,7 +88,7 @@ input:focus, textarea:focus {
   box-shadow: 0 0 0 3px var(--primary-soft);
 }
 
-input:disabled, textarea:disabled { background: #f3f2ee; cursor: not-allowed }
+input:disabled, textarea:disabled { background: #f1f5f9; cursor: not-allowed }
 button:disabled { opacity: .5; cursor: not-allowed }
 
 /* 红字提示(两处共用一个类,统一间距与颜色) */
@@ -166,7 +166,7 @@ button:disabled { opacity: .5; cursor: not-allowed }
   background: var(--ink-hover);
   border-color: var(--ink-hover);
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(24, 26, 31, .18);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, .18);
 }
 
 .login-box button[type="submit"]:active:not(:disabled),
@@ -400,7 +400,7 @@ button:disabled { opacity: .5; cursor: not-allowed }
 /* 删除三态:描边红(平时不抢眼) -> 实心红(确认) / 描边灰(取消) */
 .repo-del-btn {
   padding: 5px 12px;
-  border: 1px solid #eec9c2;
+  border: 1px solid #fecaca;
   border-radius: 8px;
   background: #fff;
   color: var(--danger);
@@ -486,13 +486,13 @@ button:disabled { opacity: .5; cursor: not-allowed }
   transition: all .18s var(--ease);
 }
 
-.chat-history-item:hover { border-color: var(--border-strong); background: #fbfaf7 }
+.chat-history-item:hover { border-color: var(--border-strong); background: #f8fafc }
 
-/* 当前查看的会话:墨色左边条 + 浅底,一眼定位"我在看哪段" */
+/* 当前查看的会话:品牌蓝左边条 + 浅蓝底,一眼定位"我在看哪段" */
 .chat-history-item.active {
-  border-color: var(--ink);
-  background: #fbfaf7;
-  box-shadow: inset 3px 0 0 var(--ink);
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  box-shadow: inset 3px 0 0 var(--primary);
 }
 
 /* min-width:0 是省略号生效的前提:flex 子项默认不会收缩到内容以下 */
@@ -548,7 +548,7 @@ button:disabled { opacity: .5; cursor: not-allowed }
   flex: 0 0 auto;
   padding: 3px 10px;
   border-radius: 8px;
-  background: #f0efeb;
+  background: #f1f5f9;
   color: var(--muted);
   font-size: 11px;
   font-weight: 600;
@@ -571,10 +571,10 @@ button:disabled { opacity: .5; cursor: not-allowed }
   word-break: break-word;
 }
 
-/* 用户气泡:墨色实心,与主按钮同色系,视觉锚点统一 */
+/* 用户气泡:品牌蓝实心,与主按钮同色系,视觉锚点统一 */
 .message.user .message-body {
   background: var(--ink);
-  color: #f2f2f0;
+  color: #fff;
   border-top-right-radius: 4px;  /* 贴角做小,气泡"尖"指向发送者 */
 }
 
@@ -587,7 +587,7 @@ button:disabled { opacity: .5; cursor: not-allowed }
 
 /* 用户气泡内的行内代码/链接要在深底上可读 */
 .message.user .message-body code { background: rgba(255, 255, 255, .14); color: #fff }
-.message.user .message-body a { color: #b9c4ff }
+.message.user .message-body a { color: #dbeafe }
 
 /* 用户输入必须保留换行:默认 HTML 会把连续换行压成一个 */
 .plain-text { white-space: pre-wrap }
@@ -596,7 +596,7 @@ button:disabled { opacity: .5; cursor: not-allowed }
 .sources {
   margin-bottom: 12px;
   padding: 10px 14px;
-  background: #fbfaf7;
+  background: #f8fafc;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
 }
@@ -639,7 +639,7 @@ button:disabled { opacity: .5; cursor: not-allowed }
 .source-preview {
   margin: 6px 0 0;
   padding: 10px 12px;
-  background: #f3f2ee;
+  background: #f1f5f9;
   border-radius: 8px;
   font-family: var(--font-mono);
   font-size: 12px;
@@ -674,12 +674,12 @@ button:disabled { opacity: .5; cursor: not-allowed }
   overflow-x: auto;
 }
 .message-body th, .message-body td { border: 1px solid var(--border); padding: 6px 10px; text-align: left }
-.message-body th { background: #fbfaf7 }
+.message-body th { background: #f8fafc }
 .message-body img { max-width: 100%; border-radius: 8px }
 
 /* 行内代码:浅墨底 + 等宽字体 */
 .message-body code {
-  background: rgba(24, 26, 31, .06);
+  background: rgba(15, 23, 42, .06);
   padding: 2px 6px;
   border-radius: 5px;
   font-family: var(--font-mono);
@@ -690,7 +690,7 @@ button:disabled { opacity: .5; cursor: not-allowed }
 .message-body pre {
   margin: 10px 0;
   padding: 12px;
-  background: #f3f2ee;
+  background: #f1f5f9;
   border-radius: var(--radius-sm);
   overflow-x: auto;
   font-family: var(--font-mono);
@@ -787,7 +787,7 @@ button:disabled { opacity: .5; cursor: not-allowed }
   padding: 6px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fbfaf7;
+  background: #f8fafc;
   color: var(--muted);
   font-size: 12px;
   transition: all .18s var(--ease);
@@ -798,7 +798,7 @@ button:disabled { opacity: .5; cursor: not-allowed }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px }
 .modal-actions .ghost { background: #fff; border: 1px solid var(--border-strong); color: var(--text) }
 .modal-actions .ghost:hover:not(:disabled) { border-color: var(--ink) }
-.modal-actions .danger { background: #fff; border: 1px solid #eec9c2; color: var(--danger) }
+.modal-actions .danger { background: #fff; border: 1px solid #fecaca; color: var(--danger) }
 .modal-actions .danger:hover:not(:disabled) { background: var(--danger-soft); border-color: var(--danger) }
 .modal-actions button:disabled, .preset-btn:disabled, .api-key-btn:disabled { opacity: .6; cursor: not-allowed }
 
@@ -827,7 +827,7 @@ button:disabled { opacity: .5; cursor: not-allowed }
   transition: all .18s var(--ease);
 }
 .stats-tab:hover { border-color: var(--ink); color: var(--ink) }
-/* 选中态:实心墨色,与主按钮同一套语言 */
+/* 选中态:实心品牌蓝,与主按钮同一套语言 */
 .stats-tab.active { background: var(--ink); border-color: var(--ink); color: #fff }
 
 /* 指标卡网格:auto-fit + minmax 让列数随宽度自适应 */
@@ -838,7 +838,7 @@ button:disabled { opacity: .5; cursor: not-allowed }
 }
 
 .stat-card {
-  background: #fbfaf7;
+  background: #f8fafc;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 14px 16px;
@@ -851,10 +851,10 @@ button:disabled { opacity: .5; cursor: not-allowed }
 .stat-value { font-size: 26px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums }
 
 /* 指标色:同一类数据一个颜色,与柱状图图例对应 */
-.stat-value.pink { color: #c73556 }
+.stat-value.pink { color: #db2777 }
 .stat-value.blue { color: var(--primary) }
 .stat-value.green { color: var(--ok) }
-.stat-value.amber { color: #c77a08 }
+.stat-value.amber { color: #d97706 }
 .stat-value.purple { color: #6d3fd4 }
 
 /* 每日明细区:上方一条分隔线,和指标卡拉开层级 */
@@ -870,7 +870,7 @@ button:disabled { opacity: .5; cursor: not-allowed }
 .stats-legend span { display: flex; align-items: center; gap: 6px }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block }
 .dot.visits { background: var(--primary) }
-.dot.questions { background: #c77a08 }
+.dot.questions { background: #d97706 }
 
 /* 一行 = 日期 + 两根柱子 + 数字标签,grid 三列对齐 */
 .bar-row {
@@ -887,14 +887,14 @@ button:disabled { opacity: .5; cursor: not-allowed }
   display: flex;
   flex-direction: column;
   gap: 3px;
-  background: #f1f0ec;
+  background: #f1f5f9;
   border-radius: 4px;
   padding: 3px 0;
 }
 
 .bar { height: 8px; border-radius: 3px; transition: width .3s var(--ease) }
 .bar.visits { background: var(--primary) }
-.bar.questions { background: #c77a08 }
+.bar.questions { background: #d97706 }
 
 /* 数字标签右对齐 + 等宽数字,纵向扫一眼就能比较大小 */
 .bar-nums { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums }
@@ -923,4 +923,13 @@ button:disabled { opacity: .5; cursor: not-allowed }
   .bar-row { grid-template-columns: 80px 1fr 74px; gap: 8px }
   .bar-nums { font-size: 11px }
   .stat-value { font-size: 20px }
+}
+
+/* ---------- 12. 无障碍:系统开启"减少动态效果"时,停用一切动画/过渡 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
 }
