@@ -24,10 +24,6 @@ from langchain_postgres import PGVector
 # 用它删 collection 会自动级联删掉 langchain_pg_embedding 里的向量行
 # (数据库外键是 ON DELETE CASCADE,已在数据库里确认过)
 
-from urllib.parse import urlparse
-# urlparse:把仓库地址拆成 协议/域名/路径 三段,
-# 用来校验"只允许 https + 知名代码托管站",防止有人让我们去 clone 内网地址
-
 from fastapi import APIRouter,Depends,Header,HTTPException,Request
 # APIRouter:FastAPI里的"迷你路由器"，可以给一组路由统一加prefix
 # Depends:FastAPI依赖注入关键字，用来声明"这个参数由框架自动提供，不是调用方传的"
@@ -65,31 +61,9 @@ from app.rag.hybrid_retriever import drop_bm25
 # 只删 Redis 的话本进程内存里还留着旧索引(见 hybrid_retriever.drop_bm25 注释)
 
 
-# 允许被 clone 的代码托管站域名。
-# 为什么必须限制:repo_url 是访客可控输入,worker 会拿它执行 git clone;
-# 不限制的话,访客填 http://169.254.169.254/... 之类,就能让我们去访问云厂商元数据接口
-ALLOWED_REPO_HOSTS={"github.com","gitee.com","gitlab.com"}
-
-def _validate_repo_url(raw:str)->str:
-  """校验并清洗仓库地址:必须 https + 白名单域名 + 不带账号密码。
-  返回清洗后的地址(去空格/反引号/尾斜杠);不合法直接抛400。"""
-  url=raw.strip().strip("`").strip() # 三级清理:去空格->去反引号->再去空格
-  parsed=urlparse(url)
-  if parsed.scheme!="https":
-    raise HTTPException(status_code=400,detail="仓库地址必须以 https:// 开头")
-  if parsed.username or parsed.password:
-    # https://user:token@github.com/... 这种写法会把凭据带进 git 命令,
-    # 既可能泄漏,也会绕过"只看域名"的白名单判断
-    raise HTTPException(status_code=400,detail="仓库地址不能包含用户名或密码")
-  host=(parsed.hostname or "").lower()
-  if host not in ALLOWED_REPO_HOSTS:
-    raise HTTPException(
-      status_code=400,
-      detail=f"目前只支持 {', '.join(sorted(ALLOWED_REPO_HOSTS))} 的公开仓库",
-    )
-  if not parsed.path or parsed.path=="/":
-    raise HTTPException(status_code=400,detail="仓库地址缺少仓库路径")
-  return url
+from app.core.url_guard import validate_repo_url
+# 地址白名单校验放在 core/url_guard.py:纯 URL 逻辑,不依赖向量库,
+# 单测可以直接测它而不必安装 langchain 全家桶
 
 class _DeleteOnlyEmbeddings(Embeddings):
   """删除仓库时用的"占位向量器":一旦被真正调用就抛错。
@@ -260,7 +234,7 @@ async def create_repo(
       )
 
   # ===== 地址校验 =====
-  repo_url=_validate_repo_url(req.repo_url)
+  repo_url=validate_repo_url(req.repo_url)
 
   # 自动从URL提取仓库名当collection
   # https://github.com/psf/requests->requests

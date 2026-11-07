@@ -3,16 +3,16 @@
 import pytest
 from fastapi import HTTPException
 
-from app.api.repo_routes import _validate_repo_url
+from app.core.url_guard import validate_repo_url
 
 
 def test_accepts_public_https_repo_and_cleans_input():
-    assert _validate_repo_url("  `https://github.com/psf/requests`  ") == "https://github.com/psf/requests"
+    assert validate_repo_url("  `https://github.com/psf/requests`  ") == "https://github.com/psf/requests"
 
 
 def test_accepts_gitee_and_gitlab():
-    assert _validate_repo_url("https://gitee.com/mirrors/requests") == "https://gitee.com/mirrors/requests"
-    assert _validate_repo_url("https://gitlab.com/gitlab-org/gitlab") == "https://gitlab.com/gitlab-org/gitlab"
+    assert validate_repo_url("https://gitee.com/mirrors/requests") == "https://gitee.com/mirrors/requests"
+    assert validate_repo_url("https://gitlab.com/gitlab-org/gitlab") == "https://gitlab.com/gitlab-org/gitlab"
 
 
 @pytest.mark.parametrize(
@@ -27,5 +27,5 @@ def test_accepts_gitee_and_gitlab():
 )
 def test_rejects_unsafe_urls(bad_url, reason):
     with pytest.raises(HTTPException) as exc:
-        _validate_repo_url(bad_url)
+        validate_repo_url(bad_url)
     assert exc.value.status_code == 400, reason

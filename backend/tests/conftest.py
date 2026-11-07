@@ -12,6 +12,10 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
+# 这两个是"需要真实 LLM / 向量库 / 本地仓库"的实验脚本,用 python -m tests.xxx 运行,
+# 不是 pytest 用例。忽略它们,避免 CI 因为只装了测试依赖而收集失败。
+collect_ignore = ["test_week3.py", "test_week6.py"]
+
 _DUMMY_ENV = {
     "LLM_API_KEY": "test-key",
     "LLM_BASE_URL": "https://api.deepseek.com",
