@@ -50,26 +50,47 @@ def extract_symbol(question: str) -> str | None:
 
 
 def _symbol_hits(metadata_symbol: str | None, target: str) -> bool:
-    """元数据里的符号名是否就是目标符号(支持 Session.send 这种带前缀写法)。"""
+    """元数据里的符号名是否就是目标符号(支持 Session.send 这种带前缀写法)。
+
+    兼容 tree-sitter 切分时给 symbol 加的尺寸后缀,如 "hybrid_search (large)"。
+    """
     meta = (metadata_symbol or "").strip().lower()
     if not meta:
         return False
+    # 去掉 "(large)" / "(medium)" / "(small)" 这类尺寸后缀
+    meta = re.sub(r"\s*\([^)]*\)\s*$", "", meta).strip()
     target = target.lower()
-    return meta == target or meta.endswith("." + target) or meta.split(".")[-1] == target
+    return (
+        meta == target
+        or meta.endswith("." + target)
+        or meta.split(".")[-1] == target
+    )
 
 
 def has_definition(docs: list, target: str) -> bool:
-    """检索块里是否存在目标符号的真实定义,而不只是"提到"。"""
-    # 带前缀的写法(Session.send)同时按全名和最后一段(send)判定
+    """检索块里是否存在目标符号的真实定义,而不只是"提到"。
+
+    AST 切分的仓库优先且只信 symbol 元数据(避免匹配到测试文件里的字符串字面量);
+    只有当所有块都没有 symbol 字段时(非 AST 仓库),才回退到内容正则。
+    """
     names = {target.lower(), target.lower().split(".")[-1]}
+    has_any_symbol = any((d.metadata.get("symbol") or "").strip() for d in docs)
+
+    if has_any_symbol:
+        # AST 仓库:只看 symbol 元数据,不扫内容(测试字符串里的 def 不算定义)
+        return any(
+            _symbol_hits(doc.metadata.get("symbol"), name)
+            for doc in docs
+            for name in names
+        )
+
+    # 非 AST 仓库:回退内容正则
     patterns = [
         re.compile(template.format(name=re.escape(name)), re.IGNORECASE)
         for name in names
         for template in _DEF_TEMPLATES
     ]
     for doc in docs:
-        if any(_symbol_hits(doc.metadata.get("symbol"), name) for name in names):
-            return True
         content = doc.page_content or ""
         if any(pattern.search(content) for pattern in patterns):
             return True
