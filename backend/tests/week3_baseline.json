@@ -1,0 +1,263 @@
+{
+  "meta": {
+    "dataset": "ragas_dataset.json",
+    "n_questions": 30,
+    "repo_py_files": 36,
+    "repo_py_lines": 11115,
+    "bm25_chunks": 261,
+    "mode": "full"
+  },
+  "manual_baseline": {
+    "median_candidate_files": 1.0,
+    "mean_candidate_files": 4.6,
+    "median_candidate_lines": 1.0,
+    "mean_candidate_lines": 81.3
+  },
+  "system_latency_sec": {
+    "p50": 1.792,
+    "p95": 2.221,
+    "mean": 1.799
+  },
+  "per_question": [
+    {
+      "id": 1,
+      "type": "func_location",
+      "keyword": "request",
+      "candidate_files": 2,
+      "candidate_lines": 2,
+      "latency_sec": 1.978
+    },
+    {
+      "id": 2,
+      "type": "func_location",
+      "keyword": "get",
+      "candidate_files": 4,
+      "candidate_lines": 4,
+      "latency_sec": 1.408
+    },
+    {
+      "id": 3,
+      "type": "func_location",
+      "keyword": "post",
+      "candidate_files": 2,
+      "candidate_lines": 2,
+      "latency_sec": 1.446
+    },
+    {
+      "id": 4,
+      "type": "func_location",
+      "keyword": "Session",
+      "candidate_files": 0,
+      "candidate_lines": 0,
+      "latency_sec": 2.0928
+    },
+    {
+      "id": 5,
+      "type": "func_location",
+      "keyword": "PreparedRequest",
+      "candidate_files": 0,
+      "candidate_lines": 0,
+      "latency_sec": 1.7102
+    },
+    {
+      "id": 6,
+      "type": "func_location",
+      "keyword": "dispatch_hook",
+      "candidate_files": 1,
+      "candidate_lines": 1,
+      "latency_sec": 1.4532
+    },
+    {
+      "id": 7,
+      "type": "func_location",
+      "keyword": "default_hooks",
+      "candidate_files": 1,
+      "candidate_lines": 1,
+      "latency_sec": 1.4175
+    },
+    {
+      "id": 8,
+      "type": "func_location",
+      "keyword": "Session",
+      "candidate_files": 0,
+      "candidate_lines": 0,
+      "latency_sec": 2.21
+    },
+    {
+      "id": 9,
+      "type": "func_location",
+      "keyword": "Session",
+      "candidate_files": 0,
+      "candidate_lines": 0,
+      "latency_sec": 1.8281
+    },
+    {
+      "id": 10,
+      "type": "func_location",
+      "keyword": "PreparedRequest",
+      "candidate_files": 0,
+      "candidate_lines": 0,
+      "latency_sec": 2.1031
+    },
+    {
+      "id": 11,
+      "type": "class_location",
+      "keyword": "Session",
+      "candidate_files": 1,
+      "candidate_lines": 1,
+      "latency_sec": 1.5851
+    },
+    {
+      "id": 12,
+      "type": "class_location",
+      "keyword": "PreparedRequest",
+      "candidate_files": 1,
+      "candidate_lines": 1,
+      "latency_sec": 1.4952
+    },
+    {
+      "id": 13,
+      "type": "class_location",
+      "keyword": "Response",
+      "candidate_files": 1,
+      "candidate_lines": 1,
+      "latency_sec": 1.4498
+    },
+    {
+      "id": 14,
+      "type": "class_location",
+      "keyword": "Request",
+      "candidate_files": 1,
+      "candidate_lines": 1,
+      "latency_sec": 1.6477
+    },
+    {
+      "id": 15,
+      "type": "class_location",
+      "keyword": "HTTPAdapter",
+      "candidate_files": 1,
+      "candidate_lines": 1,
+      "latency_sec": 1.4342
+    },
+    {
+      "id": 16,
+      "type": "class_location",
+      "keyword": "HTTPBasicAuth",
+      "candidate_files": 1,
+      "candidate_lines": 1,
+      "latency_sec": 1.6282
+    },
+    {
+      "id": 17,
+      "type": "class_location",
+      "keyword": "HTTPDigestAuth",
+      "candidate_files": 1,
+      "candidate_lines": 1,
+      "latency_sec": 1.9344
+    },
+    {
+      "id": 18,
+      "type": "class_location",
+      "keyword": "Timeout",
+      "candidate_files": 1,
+      "candidate_lines": 1,
+      "latency_sec": 1.6724
+    },
+    {
+      "id": 19,
+      "type": "class_location",
+      "keyword": "ConnectTimeout",
+      "candidate_files": 1,
+      "candidate_lines": 1,
+      "latency_sec": 1.894
+    },
+    {
+      "id": 20,
+      "type": "class_location",
+      "keyword": "ReadTimeout",
+      "candidate_files": 1,
+      "candidate_lines": 1,
+      "latency_sec": 1.5868
+    },
+    {
+      "id": 21,
+      "type": "usage",
+      "keyword": "request",
+      "candidate_files": 14,
+      "candidate_lines": 310,
+      "latency_sec": 1.9837
+    },
+    {
+      "id": 22,
+      "type": "usage",
+      "keyword": "request",
+      "candidate_files": 14,
+      "candidate_lines": 310,
+      "latency_sec": 1.7459
+    },
+    {
+      "id": 23,
+      "type": "usage",
+      "keyword": "Session",
+      "candidate_files": 6,
+      "candidate_lines": 78,
+      "latency_sec": 2.151
+    },
+    {
+      "id": 24,
+      "type": "usage",
+      "keyword": "request",
+      "candidate_files": 14,
+      "candidate_lines": 310,
+      "latency_sec": 1.7924
+    },
+    {
+      "id": 25,
+      "type": "usage",
+      "keyword": "request",
+      "candidate_files": 14,
+      "candidate_lines": 310,
+      "latency_sec": 1.8431
+    },
+    {
+      "id": 26,
+      "type": "usage",
+      "keyword": "Response",
+      "candidate_files": 8,
+      "candidate_lines": 93,
+      "latency_sec": 1.833
+    },
+    {
+      "id": 27,
+      "type": "usage",
+      "keyword": "request",
+      "candidate_files": 14,
+      "candidate_lines": 310,
+      "latency_sec": 2.3817
+    },
+    {
+      "id": 28,
+      "type": "usage",
+      "keyword": "Session",
+      "candidate_files": 6,
+      "candidate_lines": 78,
+      "latency_sec": 2.0805
+    },
+    {
+      "id": 29,
+      "type": "usage",
+      "keyword": "request",
+      "candidate_files": 14,
+      "candidate_lines": 310,
+      "latency_sec": 1.971
+    },
+    {
+      "id": 30,
+      "type": "usage",
+      "keyword": "request",
+      "candidate_files": 14,
+      "candidate_lines": 310,
+      "latency_sec": 2.2209
+    }
+  ]
+}
