@@ -307,7 +307,7 @@
           "first_rank": null
         }
       ],
-      "elapsed_sec": 6.406228099949658
+      "elapsed_sec": 5.918561900034547
     },
     "hybrid": {
       "n": 30,
@@ -609,7 +609,7 @@
           "first_rank": 1
         }
       ],
-      "elapsed_sec": 36.639039299916476
+      "elapsed_sec": 33.726686099777
     },
     "full": {
       "n": 30,
@@ -911,7 +911,7 @@
           "first_rank": 1
         }
       ],
-      "elapsed_sec": 65.87531369994394
+      "elapsed_sec": 63.269764699973166
     }
   }
 }
