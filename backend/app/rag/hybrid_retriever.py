@@ -340,8 +340,18 @@ def _search_ui_blocks(question:str,collection:str)->list:
   return docs
 
 # hybrid_search混合检索
-def hybrid_search(question:str,store,bm25:BM25Retriever)->list:
-    """混合检索全流程:双路初检->RRF融合->重排精排。"""
+def hybrid_search(question:str,store,bm25:BM25Retriever,mode:str="full")->list:
+    """混合检索全流程:双路初检->RRF融合->重排精排。
+
+    mode:
+      "vector" 仅向量检索(top RERANK_TOP_N),做消融基线
+      "hybrid" 多路召回 + RRF 融合 + 精确/非测试排序,不做重排
+      "full"   完整链路(默认值,线上行为不变):以上全部 + rerank 精排
+    """
+    if mode not in ("vector","hybrid","full"):
+        raise ValueError(f"unknown mode: {mode}")
+    if mode=="vector":
+        return store.similarity_search(question,k=RERANK_TOP_N)
     # store是向量数据库,用于存储和检索向量
     # bm25是BM25索引,用于快速检索相关文档
     vec_docs=store.similarity_search(question,k=CANDIDATE_K)
@@ -442,7 +452,11 @@ def hybrid_search(question:str,store,bm25:BM25Retriever)->list:
     # 现在改成:无论什么问题,都把全部候选送进rerank。
     # 为什么?rerank的top_n只决定"返回几条",送进去的文档都已经按token计费了,
     # 拿全量返回不额外花钱,但能保证下面"精确符号兜底"有一份完整的打分列表可用。
-    result=rerank(question,candidates,top_n=len(candidates))
+    if mode=="hybrid":
+      # 消融对照组:不调重排接口,直接沿用 RRF+加成后的顺序
+      result=list(candidates)
+    else:
+      result=rerank(question,candidates,top_n=len(candidates))
     # result:rerank的返回值,是一个list[Document],已按相关性从高到低排好序
     # rerank(...):上面定义的重排序函数,内部调硅基流动的/v1/rerank接口,失败会自动降级成RRF顺序
     # question:用户的原始问题,原样透传给重排模型做query

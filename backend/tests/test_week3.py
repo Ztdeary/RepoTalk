@@ -1,96 +1,188 @@
-"""Week 3 对比实验:30 题纯向量 vs 混合检索命中率对比。
+"""检索消融实验:vector / hybrid / hybrid+rerank 三组对比。
+
+零 LLM 成本:只有 embedding(每题一次)与 rerank(仅 full 组)调用。
+判定口径:文件级二值相关性,以评测集 ground_truth_contexts 为准。
 
 用法(backend/ 目录下):
-    uv run python -m tests.test_week3
+    .venv/Scripts/python.exe -m tests.test_week3
+    .venv/Scripts/python.exe -m tests.test_week3 --limit 3
+    .venv/Scripts/python.exe -m tests.test_week3 --modes vector,hybrid
 
-判定规则:回答不含「资料中未提及」即为命中(hit)。
+说明:
+    --dataset 默认用 ragas_dataset.json,因为它带 ground_truth_contexts;
+    questions.json 只有问题、没有标注,无法算检索指标。
 """
+
+import argparse
 import json
-import sys
+import time
 from pathlib import Path
 
-from app.core.config import settings
-from app.rag.repo_loader import iter_code_file
-from app.rag.code_splitter import split_code_file
-from app.rag.hybrid_retriever import build_bm25
-from app.rag.pipeline import answer, answer_hybrid
 from langchain_openai import OpenAIEmbeddings
 from langchain_postgres import PGVector
 
-COLLECTION = "requests"
-REPO_ROOT = Path(__file__).parent / ".cache" / "requests"
+from app.core.config import settings
+from app.rag.code_splitter import split_code_file
+from app.rag.hybrid_retriever import build_bm25, hybrid_search
+from app.rag.repo_loader import iter_code_file
+from tests.eval.metrics import evaluate_queries
+
+HERE = Path(__file__).parent
+DEFAULT_DATASET = HERE / "ragas_dataset.json"
+METRIC_KEYS = ("recall", "hit", "mrr", "ndcg")
+METRIC_LABELS = {"recall": "Recall", "hit": "Hit", "mrr": "MRR", "ndcg": "nDCG"}
 
 
-def build_resources():
-    """建一次 BM25 索引和向量库连接，全程复用。"""
+def build_resources(collection: str, repo_root: Path):
+    """建一次向量库连接与 BM25 索引,全流程复用。"""
     embeddings = OpenAIEmbeddings(
         model=settings.embedding_model,
         base_url=settings.embedding_base_url,
         api_key=settings.embedding_api_key,
-        timeout=30, max_retries=1,
+        timeout=30,
+        max_retries=1,
     )
     store = PGVector(
         embeddings=embeddings,
-        collection_name=COLLECTION,
+        collection_name=collection,
         connection=settings.database_url,
     )
     chunks = []
-    for f in iter_code_file(REPO_ROOT):
+    for f in iter_code_file(repo_root):
         try:
-            chunks.extend(split_code_file(f, "requests", REPO_ROOT))
+            chunks.extend(split_code_file(f, collection, repo_root))
         except Exception:
             pass
-    bm25 = build_bm25(chunks)
-    return store, bm25
+    if not chunks:
+        raise SystemExit(f"源码目录里没切出任何代码块:{repo_root}")
+    return store, build_bm25(chunks), len(chunks)
 
 
-def is_hit(answer_text: str) -> bool:
-    return "资料中未提及" not in answer_text
-
-
-def run_experiment():
-    questions = json.loads(
-        (Path(__file__).parent / "questions.json").read_text(encoding="utf-8")
-    )
-    store, bm25 = build_resources()
-
-    results = []
-    for q in questions:
-        r_vec = answer(q["question"], store)
-        r_hyb = answer_hybrid(q["question"], store, bm25)
-
-        vec_hit = is_hit(r_vec["answer"])
-        hyb_hit = is_hit(r_hyb["answer"])
-        results.append({
-            "id": q["id"], "type": q["type"],
-            "vec_hit": vec_hit, "hyb_hit": hyb_hit,
-            "vec_answer": r_vec["answer"][:60],
-            "hyb_answer": r_hyb["answer"][:60],
+def run_mode(mode: str, dataset: list[dict], store, bm25, k: int) -> tuple[dict, float]:
+    """跑一种检索模式,返回聚合指标与耗时(秒)。"""
+    per_query = []
+    started = time.perf_counter()
+    for item in dataset:
+        error = None
+        try:
+            docs = hybrid_search(item["question"], store, bm25, mode=mode)
+        except Exception as exc:
+            docs = []
+            error = f"{type(exc).__name__}: {exc}"
+        per_query.append({
+            "id": item.get("id"),
+            "type": item.get("type"),
+            "retrieved": [d.metadata.get("file_path", "") for d in docs],
+            "relevant": item.get("ground_truth_contexts", []),
         })
-        mark = lambda h: "HIT" if h else "MISS"
-        print(f"Q{q['id']:>2} [{q['type']:>15}]  vec={mark(vec_hit)}  hyb={mark(hyb_hit)}")
+        if error:
+            print(f"  Q{item.get('id', '?')} [{mode}] ERR={error}")
 
-    # 汇总
-    vec_total = sum(1 for r in results if r["vec_hit"])
-    hyb_total = sum(1 for r in results if r["hyb_hit"])
-    total = len(results)
-    print(f"\n{'='*60}")
-    print(f"纯向量命中率: {vec_total}/{total} = {vec_total/total*100:.0f}%")
-    print(f"混合检索命中率: {hyb_total}/{total} = {hyb_total/total*100:.0f}%")
-    print(f"提升: {(hyb_total-vec_total)/total*100:+.0f}%")
+    summary = evaluate_queries(per_query, k=k)
+    for row in summary["per_query"]:
+        rank = row["first_rank"]
+        flag = f"rank={rank}" if rank else "MISS"
+        print(f"  Q{row['id']:>2} [{mode:>6}] {flag}")
+    return summary, time.perf_counter() - started
 
-    # 按题型分组统计
-    for qtype in ("func_location", "class_location", "usage"):
-        group = [r for r in results if r["type"] == qtype]
-        v = sum(1 for r in group if r["vec_hit"])
-        h = sum(1 for r in group if r["hyb_hit"])
-        n = len(group)
-        print(f"  {qtype:>15}: vec={v}/{n}({v/n*100:.0f}%)  hyb={h}/{n}({h/n*100:.0f}%)")
 
-    # 每题的回答存下来方便复盘
-    out = Path(__file__).parent / "week3_results.json"
-    out.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"\n详细结果已保存到 {out}")
+def render_markdown(results: dict, k: int, meta: dict) -> str:
+    """把各组结果渲染成 Markdown 表格。"""
+    lines = [
+        f"# 检索消融结果(collection={meta['collection']}, k={k}, "
+        f"数据集={meta['dataset']}, 题数={meta['n_questions']})",
+        "",
+        "| 模式 | " + " | ".join(f"{METRIC_LABELS[m]}@{k}" for m in METRIC_KEYS) + " | 耗时(s) |",
+        "|---|" + "---|" * (len(METRIC_KEYS) + 1),
+    ]
+    for mode, summary in results.items():
+        cells = " | ".join(f"{summary['overall'][m]:.4f}" for m in METRIC_KEYS)
+        lines.append(f"| {mode} | {cells} | {summary['elapsed_sec']:.1f} |")
+
+    lines += ["", "## 分题型", "", "| 模式 | 题型 | 题数 | " + " | ".join(
+        f"{METRIC_LABELS[m]}@{k}" for m in METRIC_KEYS) + " |",
+        "|---|---|---|" + "---|" * len(METRIC_KEYS)]
+    for mode, summary in results.items():
+        for qtype, metric in summary["by_type"].items():
+            n = sum(1 for q in summary["per_query"] if q["type"] == qtype)
+            cells = " | ".join(f"{metric[m]:.4f}" for m in METRIC_KEYS)
+            lines.append(f"| {mode} | {qtype} | {n} | {cells} |")
+    return "\n".join(lines) + "\n"
+
+
+def main():
+    parser = argparse.ArgumentParser(description="检索消融实验(vector/hybrid/full)")
+    parser.add_argument("--collection", default="requests")
+    parser.add_argument("--repo-root", default=None, help="默认 tests/.cache/<collection>")
+    parser.add_argument("--dataset", default=str(DEFAULT_DATASET))
+    parser.add_argument("--k", type=int, default=6, help="计算指标时截断的条数")
+    parser.add_argument("--modes", default="vector,hybrid,full")
+    parser.add_argument("--limit", type=int, default=0, help="只跑前 N 题(冒烟用)")
+    parser.add_argument("--out", default=str(HERE / "week3_ablation.json"))
+    parser.add_argument("--md-out", default=str(HERE / "week3_ablation.md"))
+    args = parser.parse_args()
+
+    dataset_path = Path(args.dataset)
+    if not dataset_path.exists():
+        raise SystemExit(f"评测集不存在:{dataset_path}")
+    dataset = json.loads(dataset_path.read_text(encoding="utf-8"))
+    dataset = [x for x in dataset if x.get("ground_truth_contexts")]
+    if args.limit > 0:
+        dataset = dataset[: args.limit]
+    if not dataset:
+        raise SystemExit("评测集为空或没有 ground_truth_contexts")
+
+    repo_root = Path(args.repo_root) if args.repo_root else HERE / ".cache" / args.collection
+    if not repo_root.is_dir():
+        raise SystemExit(f"源码目录不存在:{repo_root}(先跑 Week 3 的克隆步骤)")
+
+    modes = [m.strip() for m in args.modes.split(",") if m.strip()]
+    unknown = set(modes) - {"vector", "hybrid", "full"}
+    if unknown:
+        raise SystemExit(f"未知模式:{unknown}")
+
+    print(f"[1/3] 构建资源 collection={args.collection} repo={repo_root}")
+    store, bm25, n_chunks = build_resources(args.collection, repo_root)
+    print(f"      BM25 索引块数={n_chunks}")
+
+    probe = store.similarity_search("def request", k=1)
+    if not probe:
+        raise SystemExit(f"collection={args.collection} 里没有数据,先 ingest 再跑")
+    print(f"      向量库探针 file_path={probe[0].metadata.get('file_path')}")
+
+    print(f"[2/3] 跑 {len(modes)} 组模式,共 {len(dataset)} 题")
+    results = {}
+    for mode in modes:
+        summary, elapsed = run_mode(mode, dataset, store, bm25, args.k)
+        summary["elapsed_sec"] = elapsed
+        results[mode] = summary
+        print(f"      {mode}: " + " ".join(
+            f"{METRIC_LABELS[m]}={summary['overall'][m]:.4f}" for m in METRIC_KEYS
+        ) + f"  ({elapsed:.1f}s)")
+
+    try:
+        dataset_label = dataset_path.relative_to(HERE).as_posix()
+    except ValueError:
+        dataset_label = dataset_path.name
+    meta = {
+        "collection": args.collection,
+        "k": args.k,
+        "dataset": dataset_label,
+        "n_questions": len(dataset),
+        "n_bm25_chunks": n_chunks,
+    }
+    report = {"meta": meta, "results": results}
+
+    out = Path(args.out)
+    out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    markdown = render_markdown(results, args.k, meta)
+    Path(args.md_out).write_text(markdown, encoding="utf-8")
+
+    print("[3/3] 汇总")
+    print(markdown)
+    print(f"明细: {out}")
+    print(f"表格: {args.md_out}")
+
 
 if __name__ == "__main__":
-    run_experiment()
+    main()

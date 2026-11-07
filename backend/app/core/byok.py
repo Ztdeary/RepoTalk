@@ -180,7 +180,7 @@ async def probe(cred: LLMCred) -> tuple[bool, str]:
         return False, "Key 无效或无权限(401/403)"
     if status == 404:
         # 404 通常是 base_url 路径写错(少了 /v1)或模型名不存在
-        return False, f"地址或模型不存在(404),请确认 Base URL 路径与模型名"
+        return False, "地址或模型不存在(404),请确认 Base URL 路径与模型名"
     if status == 429:
         return False, "该 Key 触发服务商限流(429),请稍后再试"
     # 其他 4xx/5xx:截取响应体前 200 字,方便用户和服务商侧对照排查

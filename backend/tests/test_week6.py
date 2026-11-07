@@ -235,7 +235,7 @@ def main():
     print(f"[step 1]加载评测集:{len(dataset)}条问题")
 
     # ----6.2 跑RAG流水线----
-    print(f"[step 2]跑RAG流水线,收集answer+contexts...")
+    print("[step 2]跑RAG流水线,收集answer+contexts...")
     rag_result=run_rag_for_dataset(dataset)
     # rag_result:每条样本现在都有question/answer/contexts/ground_truth
 
@@ -253,7 +253,7 @@ def main():
     # judge_embeddings:给answer_relevancy算相似度用的Embedding
     
     # ----6.5运行RAGAS评测----
-    print(f"[step 3]运行RAGS四指标评测(LLM裁判,可能较慢)...")
+    print("[step 3]运行RAGS四指标评测(LLM裁判,可能较慢)...")
     result=evaluate(
         # evaluate:RAGAS的主函数,返回EvaluationResult对象
         dataset=rag_dataset,  # dataset:要评测的数据集

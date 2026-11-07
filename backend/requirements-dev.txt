@@ -1,0 +1,4 @@
+# 开发/CI 依赖:在 requirements-frozen.txt 之上补测试与静态检查工具
+-r requirements-frozen.txt
+pytest>=8.0.0
+ruff>=0.6.0

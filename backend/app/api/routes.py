@@ -198,7 +198,7 @@ async def chat(
     else:
         raise HTTPException(
             status_code=400,
-            detail=f"必须提供repo_id或collection其中之一"
+            detail="必须提供repo_id或collection其中之一"
         )
 
     # 2.向量库连接
@@ -273,7 +273,7 @@ async def _resolve_collection(req:ChatReq,session:AsyncSession)->str:
     # 两个都没给,没法查,明确报400
     raise HTTPException(
         status_code=400,
-        detail=f"必须提供repo_id或collection其中之一"
+        detail="必须提供repo_id或collection其中之一"
     )
 
 @router.post("/chat/stream",description="SSE流式问答:先推引用来源,再逐token推回答")

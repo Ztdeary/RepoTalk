@@ -1,0 +1,917 @@
+{
+  "meta": {
+    "collection": "requests",
+    "k": 6,
+    "dataset": "ragas_dataset.json",
+    "n_questions": 30,
+    "n_bm25_chunks": 261
+  },
+  "results": {
+    "vector": {
+      "n": 30,
+      "overall": {
+        "recall": 0.03333333333333333,
+        "hit": 0.03333333333333333,
+        "mrr": 0.016666666666666666,
+        "ndcg": 0.021030991785715252
+      },
+      "by_type": {
+        "class_location": {
+          "recall": 0.1,
+          "hit": 0.1,
+          "mrr": 0.05,
+          "ndcg": 0.06309297535714575
+        },
+        "func_location": {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0
+        },
+        "usage": {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0
+        }
+      },
+      "per_query": [
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 1,
+          "type": "func_location",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 2,
+          "type": "func_location",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 3,
+          "type": "func_location",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 4,
+          "type": "func_location",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 5,
+          "type": "func_location",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 6,
+          "type": "func_location",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 7,
+          "type": "func_location",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 8,
+          "type": "func_location",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 9,
+          "type": "func_location",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 10,
+          "type": "func_location",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 11,
+          "type": "class_location",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 12,
+          "type": "class_location",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 13,
+          "type": "class_location",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 14,
+          "type": "class_location",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 15,
+          "type": "class_location",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 16,
+          "type": "class_location",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 17,
+          "type": "class_location",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 18,
+          "type": "class_location",
+          "first_rank": null
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 0.5,
+          "ndcg": 0.6309297535714575,
+          "id": 19,
+          "type": "class_location",
+          "first_rank": 2
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 20,
+          "type": "class_location",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 21,
+          "type": "usage",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 22,
+          "type": "usage",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 23,
+          "type": "usage",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 24,
+          "type": "usage",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 25,
+          "type": "usage",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 26,
+          "type": "usage",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 27,
+          "type": "usage",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 28,
+          "type": "usage",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 29,
+          "type": "usage",
+          "first_rank": null
+        },
+        {
+          "recall": 0.0,
+          "hit": 0.0,
+          "mrr": 0.0,
+          "ndcg": 0.0,
+          "id": 30,
+          "type": "usage",
+          "first_rank": null
+        }
+      ],
+      "elapsed_sec": 6.406228099949658
+    },
+    "hybrid": {
+      "n": 30,
+      "overall": {
+        "recall": 0.95,
+        "hit": 1.0,
+        "mrr": 0.9666666666666667,
+        "ndcg": 0.9414692315445639
+      },
+      "by_type": {
+        "class_location": {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0
+        },
+        "func_location": {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 0.95,
+          "ndcg": 0.9630929753571458
+        },
+        "usage": {
+          "recall": 0.85,
+          "hit": 1.0,
+          "mrr": 0.95,
+          "ndcg": 0.8613147192765458
+        }
+      },
+      "per_query": [
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 0.5,
+          "ndcg": 0.6309297535714575,
+          "id": 1,
+          "type": "func_location",
+          "first_rank": 2
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 2,
+          "type": "func_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 3,
+          "type": "func_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 4,
+          "type": "func_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 5,
+          "type": "func_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 6,
+          "type": "func_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 7,
+          "type": "func_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 8,
+          "type": "func_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 9,
+          "type": "func_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 10,
+          "type": "func_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 11,
+          "type": "class_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 12,
+          "type": "class_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 13,
+          "type": "class_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 14,
+          "type": "class_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 15,
+          "type": "class_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 16,
+          "type": "class_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 17,
+          "type": "class_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 18,
+          "type": "class_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 19,
+          "type": "class_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 20,
+          "type": "class_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 0.5,
+          "hit": 1.0,
+          "mrr": 0.5,
+          "ndcg": 0.38685280723454163,
+          "id": 21,
+          "type": "usage",
+          "first_rank": 2
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 22,
+          "type": "usage",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 23,
+          "type": "usage",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 24,
+          "type": "usage",
+          "first_rank": 1
+        },
+        {
+          "recall": 0.5,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 0.6131471927654584,
+          "id": 25,
+          "type": "usage",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 26,
+          "type": "usage",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 27,
+          "type": "usage",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 28,
+          "type": "usage",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 29,
+          "type": "usage",
+          "first_rank": 1
+        },
+        {
+          "recall": 0.5,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 0.6131471927654584,
+          "id": 30,
+          "type": "usage",
+          "first_rank": 1
+        }
+      ],
+      "elapsed_sec": 36.639039299916476
+    },
+    "full": {
+      "n": 30,
+      "overall": {
+        "recall": 0.9833333333333333,
+        "hit": 1.0,
+        "mrr": 0.9833333333333333,
+        "ndcg": 0.9666169192337671
+      },
+      "by_type": {
+        "class_location": {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 0.95,
+          "ndcg": 0.9630929753571458
+        },
+        "func_location": {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0
+        },
+        "usage": {
+          "recall": 0.95,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 0.9367577823441557
+        }
+      },
+      "per_query": [
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 1,
+          "type": "func_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 2,
+          "type": "func_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 3,
+          "type": "func_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 4,
+          "type": "func_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 5,
+          "type": "func_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 6,
+          "type": "func_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 7,
+          "type": "func_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 8,
+          "type": "func_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 9,
+          "type": "func_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 10,
+          "type": "func_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 11,
+          "type": "class_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 12,
+          "type": "class_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 13,
+          "type": "class_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 0.5,
+          "ndcg": 0.6309297535714575,
+          "id": 14,
+          "type": "class_location",
+          "first_rank": 2
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 15,
+          "type": "class_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 16,
+          "type": "class_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 17,
+          "type": "class_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 18,
+          "type": "class_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 19,
+          "type": "class_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 20,
+          "type": "class_location",
+          "first_rank": 1
+        },
+        {
+          "recall": 0.5,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 0.6131471927654584,
+          "id": 21,
+          "type": "usage",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 22,
+          "type": "usage",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 23,
+          "type": "usage",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 24,
+          "type": "usage",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 0.8772153153380493,
+          "id": 25,
+          "type": "usage",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 26,
+          "type": "usage",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 27,
+          "type": "usage",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 28,
+          "type": "usage",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 1.0,
+          "id": 29,
+          "type": "usage",
+          "first_rank": 1
+        },
+        {
+          "recall": 1.0,
+          "hit": 1.0,
+          "mrr": 1.0,
+          "ndcg": 0.8772153153380493,
+          "id": 30,
+          "type": "usage",
+          "first_rank": 1
+        }
+      ],
+      "elapsed_sec": 65.87531369994394
+    }
+  }
+}

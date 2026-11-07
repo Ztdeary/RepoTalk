@@ -2,6 +2,9 @@
 *.pyc
 .venv/
 venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
 backend/.env
 .env
 .env.local
