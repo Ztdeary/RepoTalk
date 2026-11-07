@@ -15,6 +15,8 @@ from app.rag.hybrid_retriever import _bm25_cache_hit # BM25三级查找函数
 from fastapi.responses import StreamingResponse # 流式响应类:yield一条就立刻推一条,不攒齐再发
 from app.rag.hybrid_retriever import hybrid_search # 混合检索函数,流式路由要在生成器里单独调它
 from app.rag.pipeline import stream_answer_hybrid # 刚在pipeline.py里写的流式生成函数
+from app.rag.pipeline import rewrite_query # 多轮追问的检索词改写(P1,默认关闭)
+from app.rag.memory import should_rewrite # 判断这轮问题是否值得改写(纯规则,零成本)
 from app.core.security import get_optional_user # 可选登录:管理员免配额,访客照常放行
 from app.core.byok import ByokError,LLMCred,parse_credentials # 访客自带Key的类型与校验
 from app.core.stats import consume_quota,get_visitor_id,record_question # 访客配额与统计
@@ -148,6 +150,10 @@ class ChatReq(BaseModel):
     repo_id:int|None=None # 推荐:指定仓库id,自动查对应的collection
     collection:str|None=None # 兼容旧版:直接指定collection名
     question:str # 用户的问题,必填
+    # 最近 3 轮问答(前端截断后传入),只用于两件事:
+    # 1)让生成端"接得上话";2)开关打开时作为查询改写的上下文。
+    # 不落库:历史随请求来、随请求走,服务端不留存用户对话
+    history:list[dict]=[]
 
 # /chat 路由:混合检索问答 
 # BM25来源从_bm25_cache.get()改成_bm25_cache_hit(repo_id->collection) 
@@ -216,13 +222,20 @@ async def chat(
             detail=f"collection='{collection}'的BM25索引不存在,请先通过POST/repos发起解析"
         )
 
+    # 3.5.多轮记忆:只有"有历史 + 命中追问规则 + 开关打开"才改写检索词。
+    # 首轮问题、独立问题完全不触发,不产生额外 LLM 调用
+    search_query=req.question
+    if settings.enable_query_rewrite and should_rewrite(req.question,req.history):
+        search_query=await rewrite_query(req.question,req.history,cred)
+
     # 4.读检索缓存:命中直接拿docs,未命中才跑完整混合检索
-    docs=get_cached_docs(req.repo_id,collection,req.question)
+    docs=get_cached_docs(req.repo_id,collection,search_query)
     if docs is None:
         # 未命中:hybrid_search是同步阻塞(embedding+rerank都是网络IO),丢线程池
-        docs=await asyncio.to_thread(hybrid_search,req.question,store,bm25)
+        docs=await asyncio.to_thread(hybrid_search,search_query,store,bm25)
         # 检索完立刻写缓存,下次同问题直接命中;写失败不影响本次回答
-        set_cached_docs(req.repo_id,collection,req.question,docs)
+        # 缓存 key 用改写后的 query:同一句追问在不同上下文里含义不同,不能共用缓存
+        set_cached_docs(req.repo_id,collection,search_query,docs)
     
     # 5.成本控制:只读演示的访客只喂前 demo_context_k 块
     docs=_demo_docs(cred,admin,docs)
@@ -239,6 +252,7 @@ async def chat(
         req.question,docs, # 传给generate_answer的前两个位置参数
         cred, # 第三个位置参数:访客自带凭证;None=用站主的Key
         _demo_max_tokens(cred,admin), # 第四个:演示模式下的输出上限;None=不限制
+        req.history, # 第五个:最近几轮问答,让回答能接上文
     )
 
 async def _resolve_collection(req:ChatReq,session:AsyncSession)->str:
@@ -315,8 +329,16 @@ async def chat_stream(
     async def token_stream():
         """异步生成器:StreamingResponse会驱动它,
         每执行到一次yield,那一条数据立刻推给浏览器,然后函数暂停在yield处等下一段。""" 
+        # 阶段0:多轮记忆——只有"追问 + 开关打开"才改写检索词(首轮零额外成本)
+        query=req.question
+        if settings.enable_query_rewrite and should_rewrite(req.question,req.history):
+            query=await rewrite_query(req.question,req.history,cred)
+            if query!=req.question:
+                # 改写结果先下发:用户能看到系统理解成了什么,也方便演示时解释效果
+                yield f"data:{json.dumps({'type':'rewritten','query':query},ensure_ascii=False)}\n\n"
+
         # 阶段1:先查缓存——命中就跳过整个检索阶段,连"检索中"状态都不用推
-        docs=get_cached_docs(req.repo_id,collection,req.question)
+        docs=get_cached_docs(req.repo_id,collection,query)
 
         if docs is None:
             # 未命中:推"检索中"状态,让前端马上有反馈(显示"正在检索资料...") 
@@ -327,7 +349,7 @@ async def chat_stream(
 
             # 阶段2:执行检索(同步阻塞,丢线程池)+等待期心跳
             task=asyncio.create_task(
-                asyncio.to_thread(hybrid_search,req.question,store,bm25)
+                asyncio.to_thread(hybrid_search,query,store,bm25)
                 # hybrid_search里BM25打分+rerank的HTTP调用都是同步阻塞 
                 # 直接在事件循环里跑会把整个FastAPI服务卡死
             )
@@ -351,8 +373,9 @@ async def chat_stream(
                 docs=task.result()
                 # task.result():拿任务的返回值。任务若是异常结束,这行会把异常重新抛出来 
                 # 所以必须用try包住,不能让异常裸奔出生成器(那会导致流直接断掉,前端连原因都看不到)
-                set_cached_docs(req.repo_id,collection,req.question,docs)
-                # 检索成功:立刻写缓存,下次同问题跳过整个阶段2
+                set_cached_docs(req.repo_id,collection,query,docs)
+                # 检索成功:立刻写缓存,下次同问题跳过整个阶段2。
+                # key 用 query(可能已被改写):同一句追问在不同上下文下含义不同,不能与首轮共用
             except Exception as e:
                 yield f"data:{json.dumps({'type':'error','message':f'检索失败:{e}'},ensure_ascii=False)}\n\n"
                 return # 生成器return=流正常结束,浏览器收到EOF
@@ -384,7 +407,7 @@ async def chat_stream(
             # 第3、4个参数:访客自带凭证 + 演示模式的输出上限。
             # pipeline 内部据此决定用谁的Key、要不要给回答"限长"
             async for token in stream_answer_hybrid(
-                req.question,docs,cred,_demo_max_tokens(cred,admin),
+                req.question,docs,cred,_demo_max_tokens(cred,admin),req.history,
             ):
                 yield f"data:{json.dumps({'type':'token','content':token},ensure_ascii=False)}\n\n"
         except Exception as e:

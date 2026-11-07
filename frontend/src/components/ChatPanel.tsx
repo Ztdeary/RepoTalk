@@ -61,14 +61,16 @@ interface ChatPanelProps {
 // =====SSE消息类型:与后端token_stream生成器推的5种消息一一对应===== 
 // 后端每条消息的JSON里都有type字段,其余字段按类型可有可无
 interface StreamMsg {
-  // type:消息类型,只能是这5个字符串之一
-  type: 'status' | 'sources' | 'token' | 'done' | 'error'
+  // type:消息类型,只能是这6个字符串之一
+  type: 'status' | 'sources' | 'token' | 'done' | 'error' | 'rewritten'
   // sources:引用来源数组,仅type==='sources'时有值
   sources?: Source[]
   // content:一个token文本片段,仅type==='token'时有值
   content?: string
   // message:错误描述,仅type==='error'时有值
   message?: string
+  // query:改写后的检索问题,仅type==='rewritten'时有值
+  query?: string
 }
 
 // =====GitHub跳转链接构造函数=====
@@ -416,6 +418,10 @@ export default function ChatPanel({ repoId, repoUrl }: ChatPanelProps) {
           if (msg.type === 'status') {
             // 检索开始(只有缓存未命中时后端才推这条)
             setStatusText('正在检索资料...')
+          } else if (msg.type === 'rewritten') {
+            // 多轮追问时,后端把"它/这个"改写成完整问题再检索。
+            // 显示出来让用户确认系统理解得对不对,也避免"问题变了却没人知道"
+            setStatusText(`已理解为:${msg.query ?? ''}`)
           } else if (msg.type === 'sources') {
             // 检索结束:引用列表到了
             setStatusText('') // 清掉"检索中"提示
@@ -456,8 +462,22 @@ export default function ChatPanel({ repoId, repoUrl }: ChatPanelProps) {
           setLoading(false)
         },
       },
-      // 请求体:repo_id+question。后端ChatReq模型用repo_id查collection再检索
-      { repo_id: repoId, question },
+      // 请求体:repo_id+question+history。
+      // history 只取"已完成的轮次"(最多 6 条):用户消息永远保留,
+      // AI 消息必须是 done 且没有 error——否则会把半截回答当成上下文。
+      // 清空对话/切仓库会清空 messages,历史随之归零,不会把别的仓库带进来
+      {
+        repo_id: repoId,
+        question,
+        history: messagesRef.current
+          .filter((m) =>
+            m.role === 'user'
+              ? m.content.trim()
+              : m.done && !m.error && m.content.trim(),
+          )
+          .slice(-6)
+          .map((m) => ({ role: m.role, content: m.content.slice(0, 200) })),
+      },
     )
   }
 
