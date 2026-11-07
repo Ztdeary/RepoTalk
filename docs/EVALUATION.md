@@ -94,19 +94,7 @@
 
 > 该延迟**不含 LLM 生成**；SSE 在检索完成后立即下发引用，所以"首个引用出现"≈ 检索耗时。
 
-**真实人工耗时怎么补（10 分钟，必须自己测）**：挑 10 道同类型题，只靠 `grep`/IDE 找定义并确认，用秒表逐题计时，记平均值 X。之后简历写成"单次定位由人工平均 **X 秒** 降至 **1.8 秒（P50）**"。没有 X 就不要写时间对比，只写 P50 + 召回率，避免面试被追问时无法自证。
-
-计时别用手记，用脚本（自动记每题秒数、判命中、算平均/中位数，中断可续测）：
-
-```bash
-cd backend
-# 先只看题目，确认题型配比（4 函数 / 3 类 / 3 用法，已按题型轮转打散）
-.venv/Scripts/python.exe -m tests.manual_baseline_timer --dry-run
-# 正式测：Enter 开始 → Enter 停止 → 输入你找到的文件 → 自动判定命中
-.venv/Scripts/python.exe -m tests.manual_baseline_timer
-```
-
-产物：`backend/tests/manual_baseline.json`（逐题记录，可复盘）与 `manual_baseline.md`（汇总表 + 可直接抄进简历的句子）。测完把 `mean_sec` 填回本节和简历即可。
+**关于"人工 X 秒"**：不做人工秒表测时。人工耗时无法由脚本复现、面试现场也难以自证，所以简历与文档只用可复现的检索指标和系统侧延迟，不写"比人快多少"的时间对比。
 
 明细数据：[week3_baseline.json](../backend/tests/week3_baseline.json)
 

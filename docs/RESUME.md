@@ -4,11 +4,13 @@
 
 **RepoTalk｜开源仓库代码问答系统（个人项目）**
 
-- 基于 tree-sitter AST 按函数/类切分代码并保留 `file_path`/`start_line`/`symbol` 元数据，解决固定窗口切碎函数、答案无法定位的问题。
-- 设计多路召回（向量 + BM25 + 符号精确匹配 + 逐字召回）+ 自写 RRF 融合 + rerank 精排：在 36 个源文件 / 1.1 万行的 requests 仓库、30 题定位基准上，Recall@6 由纯向量的 **3.3%** 提升到 **98.3%**、MRR **0.017 → 0.983**，单题证据检索 **P50 1.8s / P95 2.2s**（`k=6`，脚本可复现，检索评测零 LLM 成本）。
-- 用 RAGAS 四指标驱动 7 个检索参数联动调优，`context_recall` 由 **18.9% → 92.2%**、`faithfulness` 由 **28.8% → 93.3%**，平均提升 **+52pt**，验证瓶颈在检索层而非生成层。
-- 实现多轮上下文记忆：前端只带最近 3 轮对话，后端按 6 条 / 200 字硬约束裁剪；对"它""那 X 呢"这类指代型追问先规则判定（10/10 触发、30 条单轮 0 触发）再走 LLM 查询改写，改写后追问检索 Recall@6 由 **40% → 100%**、MRR **0.183 → 0.858**（人工改写上限 1.000），历史注入仅增加 **7–10 个 prompt token**。
-- 用 arq + Redis 做异步解析，SSE 先推引用再逐 token 输出，检索期发心跳防代理断连，并实现结果缓存、访客配额、BYOK 白名单与 rerank 失败降级；Docker Compose 五容器部署并公网可访问。
+- 基于 tree-sitter 按函数/类边界切块并保留 `file_path`/`start_line`/`symbol`，解决固定窗口切碎函数、答案无法定位的问题；排查并修复 grammar 探测在 Linux 恒为 False 的跨平台缺陷，切块数 **852 → 289**、语法残缺块占比 **28% → 0**。
+- 设计四路召回（向量 + BM25 + 符号精确匹配 + 逐字召回）+ 自写 RRF 融合 + rerank 精排：在 36 个源文件 / 1.1 万行的 requests、30 题定位基准上，Recall@6 由纯向量的 **3.3%** 提升到 **98.3%**（命中题数 **1/30 → 29.5/30**）、MRR **0.017 → 0.983**，单题证据检索 **P50 1.8s / P95 2.2s**；消融显示收益来自混合召回而非向量模型，rerank 只补 3.3pp、代价约 +1s/题（零 LLM 成本、脚本可复现）。
+- 用 RAGAS 四指标驱动检索参数联动调优：`context_recall` **18.9% → 92.2%**、`faithfulness` **28.8% → 93.3%**、`context_precision` **27.2% → 76.9%**，平均 **+52pt**；据此判定瓶颈在检索层而非生成层，把优化重点从"换更强的 LLM"转到召回与切分。
+- 实现多轮上下文记忆：前端只带最近 3 轮、后端按 6 条 / 200 字硬约束裁剪；对指代型追问先规则判定（追问 **10/10** 触发、单轮 **0/30** 不触发）再走 LLM 查询改写（3.73s/次，超时回退原句），追问检索 Recall@6 由 **40% → 100%**、MRR **0.183 → 0.858**（人工改写上限 1.000），历史注入仅增加 **7–10 个 prompt token**。
+- 用 arq + Redis 异步解析，SSE 先推引用再逐 token 输出、检索期发心跳防代理断连；实现结果缓存、访客配额、BYOK 域名白名单与 rerank 失败降级；Docker Compose 五容器部署，**55 个纯单测** + GitHub Actions（ruff / pytest / 前端构建）全绿。
+
+**技术栈（按层）**：后端 Python 3.12 / FastAPI / arq / Redis / LangChain LCEL / SQLAlchemy；检索 PostgreSQL 16 + pgvector / bge-m3 / bge-reranker-v2-m3 / rank-bm25 + jieba / tree-sitter；生成 DeepSeek `deepseek-chat`（temperature=0，支持 BYOK 兼容 OpenAI 接口）；前端 Vite + React + TypeScript；交付 Docker Compose（db / redis / backend / worker / nginx）、Nginx、pytest、ruff、GitHub Actions。
 
 > 措辞注意：不要写「Agent」。当前是**RAG 问答链路 + 多轮上下文（历史透传 + 指代改写）**，没有 tool calling / planning / 多跳。写 Agent 一定会被追问，答不上反而扣分。
 
@@ -42,6 +44,5 @@
 - [ ] 60 秒演示视频：提交仓库 → 进度 → 提问 → 流式回答 → 点引用定位
 - [x] GitHub Actions 已配置并跑绿（ruff + pytest + 前端构建）
 - [x] 多轮上下文评测：10 组追问 A/B/C 对比 + P0 token 成本（见 `docs/EVALUATION.md`）
-- [ ] 人工定位基线：自测 10 题（协议见 `docs/EVALUATION.md`），拿到平均 X 秒后补成"人工 X 秒 → 1.8 秒"
 - [ ] 把开发过程补成 issue → 分支 → PR 的闭环
 - [ ] 域名 + HTTPS（备案通过后），BYOK 才能默认开启
