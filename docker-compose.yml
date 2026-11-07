@@ -21,8 +21,13 @@ services:
   # ---- 缓存:Redis ----
   redis:
     image: redis:7-alpine
+    # AOF 持久化:每条写命令落盘,容器重建/重启后统计数据、BM25 索引、缓存都不丢。
+    # everysec:每秒刷一次盘,最多丢 1 秒数据,性能开销可忽略
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
     ports:
       - "127.0.0.1:6379:6379" # Redis 无密码,绝不能暴露公网
+    volumes:
+      - redis_data:/data # AOF 文件落在这里,容器删了数据还在
     healthcheck:
       # 健康检查:用 redis-cli ping
       test: [ "CMD", "redis-cli", "ping" ]
@@ -99,3 +104,4 @@ services:
 
 volumes:
   pgdata:
+  redis_data: # Redis AOF 持久化目录
