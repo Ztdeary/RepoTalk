@@ -230,9 +230,11 @@ def generate_answer(
         f"# 文件:{d.metadata.get('file_path')}第{d.metadata.get('start_line')}--{d.metadata.get('end_line')}行符号:{d.metadata.get('symbol')}\n{d.page_content}"
         for d in docs
     )
-    chain=prompt|llm|StrOutputParser() # prompt填变量->送LLM->把输出剥成纯字符串
+    chain=prompt|llm # 保留AIMessage:顺便把 token_usage 带回来,成本统计和评测都要用
+    message=chain.invoke({"context":context,"question":question,"history":build_history_block(history)})
     return{
-        "answer":chain.invoke({"context":context,"question":question,"history":build_history_block(history)}),
+        "answer":message.content, # 纯文本答案,和之前 StrOutputParser 的输出等价
+        "usage":message.response_metadata.get("token_usage") or {}, # prompt/completion token,用于成本估算
         "source":[{ # 注意保持"source"这个key名不变,和旧响应结构一致,前端/验收脚本不受影响
             "file_path":d.metadata.get("file_path"), # 相对路径,前端跳转用
             "start_line":d.metadata.get("start_line"), # 起始行,前端定位用

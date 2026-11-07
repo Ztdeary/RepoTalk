@@ -32,7 +32,7 @@
 1. **按语法树切分，不按字数切**：tree-sitter 以函数/类为边界切块，保留 `file_path` / `start_line` / `symbol`，检索出来的是完整可用的代码，而不是半截函数。
 2. **多路召回 + RRF 融合**：向量（bge-m3）+ BM25 + 符号精确匹配 + 逐字原文召回，自写 RRF 只按排名融合、规避量纲不一致，再用 bge-reranker 精排。
 3. **成本与边界可控**：访客每日配额、演示模式限 4 块上下文 / 320 输出 token、BYOK 域名白名单、rerank 失败自动降级为 RRF 顺序。
-4. **多轮上下文**：前端只带最近 3 轮问答，后端按 `history_max_messages` / `history_max_chars` 硬约束裁剪后注入 prompt；追问（"它""那 X 呢"）可开启查询改写（`ENABLE_QUERY_REWRITE=true`，默认关闭），改写只作用于检索，超时或失败回退原问题。
+4. **多轮上下文**：前端只带最近 3 轮问答，后端按 `history_max_messages` / `history_max_chars` 硬约束裁剪后注入 prompt；追问（"它""那 X 呢"）可开启查询改写（`ENABLE_QUERY_REWRITE=true`，默认关闭），改写只作用于检索，超时或失败回退原问题。10 组指代型追问实测：不改写 Recall@6 40%、MRR 0.183，改写后 **100% / 0.858**（人工改写上限 1.000）；单轮问题 0/30 触发，历史注入仅增加 7–10 个 prompt token。详见 [docs/EVALUATION.md](docs/EVALUATION.md)。
 
 ```mermaid
 flowchart LR
