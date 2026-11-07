@@ -216,19 +216,30 @@ def _simple_split(text:str, lang_name:str, repo_name:str, rel_path:Path, max_cha
   split_points=[0]
   for i, line in enumerate(lines):
     stripped=line.lstrip()
+    # 顶层 export 声明(export function / export const ...)按 export 也切一刀,
+    # 否则整段导出代码会和前面的模块级代码并成巨型块,重排时难以命中
+    if stripped.startswith("export "):
+      split_points.append(i)
+      continue
     for kw in keywords:
       if stripped.startswith(kw):
         split_points.append(i)
         break
 
-  if len(split_points)==1:
-    # 没有关键字,整个文件作为一个块
-    split_points.append(len(lines))
+  # 关键:必须有 len(lines) 作为尾哨兵。
+  # 原来的写法只在"整文件没有任何关键字"时才补,导致最后一个关键字之后的代码
+  # 永远不生成块。最典型的受害者是组件文件末尾的 return (<aside>...按钮...)——
+  # 那段 JSX 不含任何关键字,于是"某个按钮在哪"的问题在索引里根本查不到。
+  split_points.append(len(lines))
+  # 第0行本身是关键字时会出现两个 0,去重并排序
+  split_points=sorted(set(split_points))
 
   # 按 split_points 切
   for i in range(len(split_points)-1):
     start=split_points[i]
-    end=split_points[i+1] if i+1<len(split_points) else len(lines)
+    end=split_points[i+1]
+    if end<=start:
+      continue
     chunk_text="\n".join(lines[start:end])
 
     # 超过 max_chars 就按行再切
