@@ -17,6 +17,7 @@ from app.rag.hybrid_retriever import hybrid_search # 混合检索函数,流式�
 from app.rag.pipeline import stream_answer_hybrid # 刚在pipeline.py里写的流式生成函数
 from app.rag.pipeline import rewrite_query # 多轮追问的检索词改写(P1,默认关闭)
 from app.rag.memory import should_rewrite # 判断这轮问题是否值得改写(纯规则,零成本)
+from app.rag.answer_guard import not_found_answer # 定位类问题"查无此符号"兜底
 from app.core.security import get_optional_user # 可选登录:管理员免配额,访客照常放行
 from app.core.byok import ByokError,LLMCred,parse_credentials # 访客自带Key的类型与校验
 from app.core.stats import consume_quota,get_visitor_id,record_question # 访客配额与统计
@@ -240,6 +241,24 @@ async def chat(
     # 5.成本控制:只读演示的访客只喂前 demo_context_k 块
     docs=_demo_docs(cred,admin,docs)
 
+    # 5.5.定位类问题兜底:仓库里没有该符号的定义时,如实回答,不喂给 LLM 编解释
+    refusal=not_found_answer(req.question,docs)
+    if refusal is not None:
+        return {
+            "answer":refusal,
+            "usage":{},
+            "source":[
+                {
+                    "file_path":d.metadata.get("file_path"),
+                    "start_line":d.metadata.get("start_line"),
+                    "end_line":d.metadata.get("end_line"),
+                    "symbol":d.metadata.get("symbol"),
+                    "content":d.page_content[:200],
+                }
+                for d in docs
+            ],
+        }
+
     # 6.生成:无论docs来自缓存还是现查,生成这一步都要现场做 
     # generate_answer是同步阻塞(chain.invoke等LLM写完整篇),同样丢线程池
     loop=asyncio.get_running_loop()
@@ -398,7 +417,15 @@ async def chat_stream(
             for d in docs
         ] # 字段结构与answer_hybrid返回的source完全对齐,前端一套渲染逻辑吃两个接口
         yield f"data:{json.dumps({'type':'sources','sources':sources},ensure_ascii=False)}\n\n"
-            
+
+        # 阶段3.5:定位类问题兜底。仓库里没有该符号定义时,直接如实说没有,
+        # 不再让 LLM 顺着"只是提到这个词"的块编出无关解释
+        refusal=not_found_answer(req.question,docs)
+        if refusal is not None:
+            yield f"data:{json.dumps({'type':'token','content':refusal},ensure_ascii=False)}\n\n"
+            yield f"data:{json.dumps({'type':'done'},ensure_ascii=False)}\n\n"
+            return
+
         # 阶段4:LLM流式生成,逐token转发 
         # stream_answer_hybrid是异步生成器,用async for消费: 
         # 它每yield一个文本片段,这里就立刻包成SSE消息推给前端 
