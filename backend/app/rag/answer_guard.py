@@ -18,13 +18,19 @@ _IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*$")
 _NOISE = re.compile(r"[`'\"“”]")
 _SUFFIX_WORDS = ("函数", "方法", "类", "变量", "接口", "模块", "对象", "属性", "常量", "宏", "的")
 _HINTS = ("在哪个文件", "在什么文件", "在哪", "定义在", "定义于")
+# 定义写法模板。编译时统一加"行首锚点"(见 has_definition):
+# 只有出现在一行的开头(允许缩进)才算定义,这样才能把测试用例里的
+# 字符串字面量(如 ("def request(", "request", True)) 排除掉。
+# 反例:测试文件里字符串形式的 def 通常前面还有引号/括号,不会顶到行首。
 _DEF_TEMPLATES = (
     r"(?:async\s+)?def\s+{name}\b",
     r"class\s+{name}\b",
     r"(?:function|func|fn)\s+{name}\b",
     r"(?:struct|interface|enum|trait)\s+{name}\b",
-    r"(?:const|let|var)\s+{name}\s*=",
+    r"(?:const|let|var)\s+{name}\b",
     r"type\s+{name}\s+",
+    # 模块级常量/类字段/字典键形式的声明,如 CANDIDATE_K=80、name: str = ""
+    r"{name}\s*[:=]",
 )
 
 
@@ -70,27 +76,21 @@ def _symbol_hits(metadata_symbol: str | None, target: str) -> bool:
 def has_definition(docs: list, target: str) -> bool:
     """检索块里是否存在目标符号的真实定义,而不只是"提到"。
 
-    AST 切分的仓库优先且只信 symbol 元数据(避免匹配到测试文件里的字符串字面量);
-    只有当所有块都没有 symbol 字段时(非 AST 仓库),才回退到内容正则。
+    两种证据都认:
+    1. symbol 元数据等于目标符号(AST 切分产出的函数/类块);
+    2. 正文里出现"行首的定义写法"(模块级常量、降级切分的块也能认)。
+       为什么必须锚定行首:测试用例常把 "def request(" 当字符串字面量传参,
+       那种写法前面有引号或括号,不会出现在行首,于是不会被误判成定义。
     """
     names = {target.lower(), target.lower().split(".")[-1]}
-    has_any_symbol = any((d.metadata.get("symbol") or "").strip() for d in docs)
-
-    if has_any_symbol:
-        # AST 仓库:只看 symbol 元数据,不扫内容(测试字符串里的 def 不算定义)
-        return any(
-            _symbol_hits(doc.metadata.get("symbol"), name)
-            for doc in docs
-            for name in names
-        )
-
-    # 非 AST 仓库:回退内容正则
     patterns = [
-        re.compile(template.format(name=re.escape(name)), re.IGNORECASE)
+        re.compile(r"^[ \t]*" + template.format(name=re.escape(name)), re.IGNORECASE | re.MULTILINE)
         for name in names
         for template in _DEF_TEMPLATES
     ]
     for doc in docs:
+        if any(_symbol_hits(doc.metadata.get("symbol"), name) for name in names):
+            return True
         content = doc.page_content or ""
         if any(pattern.search(content) for pattern in patterns):
             return True

@@ -6,6 +6,7 @@ import redis as _redis # 导入redis模块用于连接Redis数据库，_redis表
 
 from langchain_core.documents import Document # 重建BM25时要Document对象
 from app.core.config import settings # 导入配置模块用于获取重排序模型路径
+from app.rag.answer_guard import extract_symbol, has_definition # 定位问句抽符号/判定义
 from langchain_community.retrievers import BM25Retriever # 导入BM25Retriever类
 
 CANDIDATE_K=80 # 每路初检多少条候选(加60%,粗筛多捞候选避免好块被挤掉)
@@ -339,6 +340,51 @@ def _search_ui_blocks(question:str,collection:str)->list:
     return []
   return docs
 
+# =====符号定义精确召回=====
+# 解决"X 在哪定义"答不准的问题:向量/BM25 往往把"使用了 X 的块"排到前面,
+# 而真正的定义块(尤其模块级常量)symbol 元数据是所在块的第一行(如 "import re # ..."),
+# 按 symbol 过滤永远捞不到,于是模型只能看到"两处使用",答不出定义位置。
+# 做法:直接从库里按名字粗筛,再用 answer_guard 的行首定义正则确认,确认的置顶喂给模型。
+def _search_definition(question:str,collection:str)->list:
+  symbol=extract_symbol(question)
+  # extract_symbol:只在"X 在哪定义"这类问句返回符号名,其他问题返回 None(不产生额外查询)
+  if not symbol or not collection:
+    return []
+  name=re.escape(symbol.split(".")[-1])
+  dsn=re.sub(r"^postgresql\+[a-z0-9_]+://","postgresql://",settings.database_url)
+  try:
+    import psycopg
+    with psycopg.connect(dsn,connect_timeout=8) as conn:
+      with conn.cursor() as cur:
+        # 先用名字粗筛(最多 80 条),symbol 里含这个名字的排前面,短块排前面
+        # 精确判定放在 Python 里做:PG 的 ARE 语法和 Python re 不完全一致,
+        # 复用 answer_guard.has_definition 才能保证"和拒答判定同一套标准"
+        cur.execute(
+          """select e.document,e.cmetadata::text
+             from langchain_pg_embedding e
+             join langchain_pg_collection c on e.collection_id=c.uuid
+             where c.name=%s and e.document ~* %s
+             order by (e.cmetadata->>'symbol' ~* %s) desc,length(e.document) asc
+             limit 80""",
+          (collection,name,name),
+        )
+        rows=cur.fetchall()
+    docs=[Document(page_content=doc,metadata=json.loads(meta)) for doc,meta in rows]
+    docs=[d for d in docs if has_definition([d],symbol)]
+    # 测试文件里的"定义"多半是测试辅助函数,真定义优先;同优先级取更短的块
+    docs.sort(key=lambda d:(
+      str(d.metadata.get("file_path","")).replace("\\","/").startswith(("tests/","test_")),
+      len(d.page_content),
+    ))
+    docs=docs[:3]
+    print(f"[hybrid] 定义候选:{[(d.metadata.get('file_path'),d.metadata.get('start_line')) for d in docs]}")
+    return docs
+  except Exception as exc:
+    # 定义召回只是增强路,失败退回原有检索顺序
+    print(f"[hybrid] 定义召回失败:{exc}")
+    return []
+
+
 # hybrid_search混合检索
 def hybrid_search(question:str,store,bm25:BM25Retriever,mode:str="full")->list:
     """混合检索全流程:双路初检->RRF融合->重排精排。
@@ -373,6 +419,10 @@ def hybrid_search(question:str,store,bm25:BM25Retriever,mode:str="full")->list:
     # 用户问"某个按钮/弹窗/页面在哪"时,按问题实词在前端 JSX 块里挑候选;
     # 不问界面元素时该路返回空,不产生额外开销
     ui_docs=_search_ui_blocks(question,getattr(store,"collection_name",""))
+
+    # 第五路(前置):符号定义精确召回
+    # "X 在哪定义"这类问题必须看到定义块本身,否则模型只能答"哪里用到了 X"
+    def_docs=_search_definition(question,getattr(store,"collection_name",""))
 
     # 第三路:符号精确召回
     # 解决"高频词"问题:command 在tests里出现上百次,IDF被稀释,定义块进不了前50
@@ -410,7 +460,7 @@ def hybrid_search(question:str,store,bm25:BM25Retriever,mode:str="full")->list:
     print(f"[hybrid] exact候选:{[d.metadata.get('symbol') for d in exact_docs]}")
     # 调试日志:确认到底捞到了哪些定义块
 
-    fused=rrf_fuse([vec_docs,kw_docs,exact_docs,exact_bm25,exact_text_docs,ui_docs])
+    fused=rrf_fuse([vec_docs,kw_docs,exact_docs,exact_bm25,exact_text_docs,ui_docs,def_docs])
     # 两路列表丢进RRF融合函数,对应list[list]的传参格式,进行融合去重+按融合分排序
     if not fused: # 两路都没捞到,直接返回空,不拿空列表去调重排接口 return []
         return []
@@ -523,6 +573,16 @@ def hybrid_search(question:str,store,bm25:BM25Retriever,mode:str="full")->list:
       result=[d for d in result if (d.metadata.get("file_path",""),d.metadata.get("start_line")) not in pinned_keys]
       result=pinned+result
       print(f"[hybrid] 逐字命中置顶:{[(d.metadata.get('file_path'),d.metadata.get('start_line')) for d in pinned]}")
+
+    # 第四步补二:定义块强制置顶
+    # 与逐字召回同理:定义块常常因为块太长、词频不高被 rerank 压后,
+    # 但"X 在哪定义"的答案就在这一块里,压后等于让模型看不见定义。
+    if def_docs:
+      pinned=def_docs[:2]
+      pinned_keys={(d.metadata.get("file_path",""),d.metadata.get("start_line")) for d in pinned}
+      result=[d for d in result if (d.metadata.get("file_path",""),d.metadata.get("start_line")) not in pinned_keys]
+      result=pinned+result
+      print(f"[hybrid] 定义块置顶:{[(d.metadata.get('file_path'),d.metadata.get('start_line')) for d in pinned]}")
 
     # ---- 第五步:去重后截断 ----
     final=[]

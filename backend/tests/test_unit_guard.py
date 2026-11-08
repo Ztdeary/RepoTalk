@@ -53,6 +53,19 @@ def test_has_definition_accepts_js_and_go_style():
     assert has_definition([_doc(None, "func request(url string) {}")], "request")
 
 
+def test_has_definition_accepts_module_level_constant():
+    docs = [_doc("import re # 正则表达式模块", "import re\n\nCANDIDATE_K=80 # 每路初检多少条候选\n")]
+    assert has_definition(docs, "CANDIDATE_K")
+
+
+def test_has_definition_ignores_quoted_def_inside_test_case():
+    docs = [_doc(
+        "def test_is_def_of_handles_both_symbol_formats(symbol, ident, expected):",
+        '    assert ("def request(", "request", True)\n',
+    )]
+    assert not has_definition(docs, "request")
+
+
 def test_not_found_answer_when_symbol_is_absent():
     docs = [_doc(None, "# 只是提到 request 这个词")]
     answer = not_found_answer("`request` 在哪定义?", docs)
