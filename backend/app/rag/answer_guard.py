@@ -97,6 +97,51 @@ def has_definition(docs: list, target: str) -> bool:
     return False
 
 
+_REFUSAL_ENTITY = re.compile(r"没有找到\s*`([^`]+)`\s*的定义")
+# 追问里常见的指代词:出现任何一个都说明这句话主语要靠上文补
+_PRONOUN_HINTS = ("它", "他", "她", "这个", "那个", "该", "此", "上面", "刚才")
+
+
+def sticky_refusal(question: str, history: list | None, docs: list) -> str | None:
+    """上一轮已判定"仓库里没有 X 的定义",本轮用代词追问时不要重新编造。
+
+    为什么需要:
+        守卫只认"X 在哪定义"这种定位问句。用户接着问"它接收几个参数",
+        已经不再是定位句式,守卫放行,LLM 会从无关代码里凑出一个"参数列表",
+        表现得像真的找到了定义。这是比第一轮拒答更危险的错误。
+    规则(纯字符串匹配,零 LLM 成本):
+        1. 从历史里的助手消息中找最近一条拒答话术,取出实体名 X;
+        2. 本轮问题含代词,或直接点名 X;
+        3. 检索块里依然没有 X 的真实定义 -> 沿用拒答结论。
+    如果本轮检索真的找到了定义(比如换了问法召回成功),则放行,由正常流程回答。
+    """
+    entity = None
+    for item in reversed(history or []):
+        content = item.get("content") if isinstance(item, dict) else getattr(item, "content", "")
+        if not content:
+            continue
+        match = _REFUSAL_ENTITY.search(str(content))
+        if match:
+            entity = match.group(1).strip()
+            break
+    if not entity:
+        return None
+
+    text = question or ""
+    refers = entity.lower() in text.lower() or any(word in text for word in _PRONOUN_HINTS)
+    if not refers:
+        return None
+    if has_definition(docs, entity):
+        return None
+
+    return (
+        f"上一轮已经确认:当前仓库中没有找到 `{entity}` 的定义"
+        f"(可能是第三方依赖,或名称写法不同)。\n\n"
+        f"要回答它的参数/返回值,前提是先看到它的定义;"
+        f"目前检索到的 {len(docs)} 个代码块里都没有,所以无法给出确定答案。"
+    )
+
+
 def not_found_answer(question: str, docs: list) -> str | None:
     """命中兜底时返回话术,否则返回 None(交给正常 LLM 流程)。"""
     target = extract_symbol(question)

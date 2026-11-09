@@ -15,9 +15,9 @@ from app.rag.hybrid_retriever import _bm25_cache_hit # BM25三级查找函数
 from fastapi.responses import StreamingResponse # 流式响应类:yield一条就立刻推一条,不攒齐再发
 from app.rag.hybrid_retriever import hybrid_search # 混合检索函数,流式路由要在生成器里单独调它
 from app.rag.pipeline import stream_answer_hybrid # 刚在pipeline.py里写的流式生成函数
-from app.rag.pipeline import rewrite_query # 多轮追问的检索词改写(P1,默认关闭)
+from app.rag.pipeline import rewrite_query # 多轮追问的检索词改写(默认开启,仅追问触发)
 from app.rag.memory import should_rewrite # 判断这轮问题是否值得改写(纯规则,零成本)
-from app.rag.answer_guard import not_found_answer # 定位类问题"查无此符号"兜底
+from app.rag.answer_guard import not_found_answer,sticky_refusal # 定位类兜底 + 已拒答符号的追问兜底
 from app.core.security import get_optional_user # 可选登录:管理员免配额,访客照常放行
 from app.core.byok import ByokError,LLMCred,parse_credentials # 访客自带Key的类型与校验
 from app.core.stats import consume_quota,get_visitor_id,record_question # 访客配额与统计
@@ -242,7 +242,8 @@ async def chat(
     docs=_demo_docs(cred,admin,docs)
 
     # 5.5.定位类问题兜底:仓库里没有该符号的定义时,如实回答,不喂给 LLM 编解释
-    refusal=not_found_answer(req.question,docs)
+    # 先查"上一轮已拒答过同一个符号":用户用"它"接着追问时,不能换个问法就编出答案
+    refusal=sticky_refusal(req.question,req.history,docs) or not_found_answer(req.question,docs)
     if refusal is not None:
         return {
             "answer":refusal,
@@ -419,8 +420,9 @@ async def chat_stream(
         yield f"data:{json.dumps({'type':'sources','sources':sources},ensure_ascii=False)}\n\n"
 
         # 阶段3.5:定位类问题兜底。仓库里没有该符号定义时,直接如实说没有,
-        # 不再让 LLM 顺着"只是提到这个词"的块编出无关解释
-        refusal=not_found_answer(req.question,docs)
+        # 不再让 LLM 顺着"只是提到这个词"的块编出无关解释。
+        # sticky_refusal 排在前:上一轮已确认不存在的符号,用"它"追问也要继续拒答
+        refusal=sticky_refusal(req.question,req.history,docs) or not_found_answer(req.question,docs)
         if refusal is not None:
             yield f"data:{json.dumps({'type':'token','content':refusal},ensure_ascii=False)}\n\n"
             yield f"data:{json.dumps({'type':'done'},ensure_ascii=False)}\n\n"

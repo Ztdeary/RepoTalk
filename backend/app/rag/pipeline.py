@@ -303,12 +303,22 @@ async def rewrite_query(
     任何异常/超时都回退原问题:上下文记忆是增强项,不能成为可用性的单点故障。
     """
     prompt=ChatPromptTemplate.from_template(
-        """下面是一段代码问答的历史对话,以及用户的最新追问。
-请把追问改写成一句可以独立检索的完整问题:
-- 补全被省略的主语/对象(如"它""这个""那 X 呢"所指的内容);
-- 保留函数名、类名、文件名、参数名的原始写法;
-- 不要回答问题,不要解释,不要加引号;
-- 不超过 40 个字。
+        """你是代码问答的查询改写器。根据历史对话,把用户的最新追问改写成
+一句脱离上下文也能独立检索的完整问题。
+
+规则:
+1. 必须把"它/这个/那个/上面/刚才/该/此"等指代,替换成历史对话里出现过的
+   具体名称(函数名、类名、文件名、配置项、常量),名称原样照抄;
+2. 被省略的主语、宾语、比较对象必须补全;
+3. 保留函数名、类名、文件名、参数名、常量的大小写和写法;
+4. 只输出改写后的问句:不回答、不解释、不加引号、不加任何前缀;
+5. 不超过 40 个字。
+
+示例:
+历史:用户: rrf_fuse 的作用是什么? 助手: 它是倒数排名融合……
+追问: 它的 k 是多少?
+改写: rrf_fuse 的 k 参数默认值是多少?
+
 历史对话:
 {history}
 最新追问: {question}
@@ -316,13 +326,26 @@ async def rewrite_query(
     )
     llm=_make_llm(llm_cred,max_tokens=64)
     chain=prompt|llm|StrOutputParser()
-    try:
-        rewritten=await asyncio.wait_for(
-            chain.ainvoke({"history":build_history_block(history),"question":question}),
+
+    def _clean(raw) -> str:
+        return " ".join(str(raw).split()).strip(" \"'“”‘’。.,，")
+
+    async def _run(extra:str="") -> str:
+        question_for_llm=question if not extra else f"{question}\n(补充要求:{extra})"
+        return await asyncio.wait_for(
+            chain.ainvoke({"history":build_history_block(history),"question":question_for_llm}),
             timeout=timeout,
         )
+
+    _UNRESOLVED=("它","这个","那个","上面","刚才","该","此")
+    try:
+        text=_clean(await _run())
+        # 一次校验:改写结果里还剩指代词,说明模型没照规则做。
+        # 只重试一次(而不是循环):改写是增强项,不能因为模型不听话拖长首字延迟;
+        # 第二次仍不合格就回退原问题,宁可用原句检索也不把含糊句子送进检索
+        if any(word in text for word in _UNRESOLVED):
+            text=_clean(await _run("上一次输出仍含指代词,必须替换成历史里的具体函数名或文件名"))
     except Exception:
         return question
-    text=" ".join(str(rewritten).split()).strip(" \"'“”‘’。.,，")
     # 空结果说明模型没按要求输出,回退原问题,避免把空串拿去检索
     return text[:80] if text else question

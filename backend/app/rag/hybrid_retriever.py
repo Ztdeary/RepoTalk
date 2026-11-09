@@ -14,6 +14,10 @@ RERANK_TOP_N=6 # 重排后最终喂给LLM的条数(加50%,直接提高context_re
 
 # 预编译正则：匹配编程语言标识符（snake_case / CamelCase 整词）
 _IDENT_RE=re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+# 问题里显式点名的文件名,如 "answer_guard.py 里有哪些函数"
+# 这类"整文件概览"问题,定义块本身词频不高,向量和BM25都容易只召回引用它的地方,
+# 所以单独按文件名捞一路候选
+_FILE_RE=re.compile(r"[A-Za-z0-9_./-]+\.(?:py|ts|tsx|js|jsx|md|yml|yaml|json|toml|sql|sh|css)")
 # [A-Za-z] 表示匹配大写字母或小写字母
 # [0-9] 表示匹配数字
 # _ 表示匹配下划线
@@ -61,6 +65,28 @@ def _is_def_of(symbol:str,ident:str)->bool:
   return s.startswith((f"def {i}(",f"async def {i}(",f"class {i}("))
   # 签名首行命中:startswith 传元组=命中任意一个前缀即 True
   # class 后一定跟左括号(继承或空参数),所以 "class Session(" 能覆盖 "class Session(SessionRedirectMixin):"
+
+def _search_file_blocks(question:str,bm25:BM25Retriever)->list:
+  """按问题里点名的文件名召回该文件的块。
+
+  为什么需要:用户问"answer_guard.py 里有哪些函数"时,
+  真正要的是这个文件内部的块,但向量/BM25按语义打分,
+  常常只召回 import 或调用它的地方(测试文件、路由文件)。
+  这里用文件名本身跑一次 BM25,再按 file_path 后缀过滤,
+  零额外网络请求,只多一次内存检索。
+  """
+  match=_FILE_RE.search(question)
+  if not match:
+    return []
+  name=match.group(0).lower()
+  try:
+    hits=list(bm25.invoke(name))
+  except Exception as exc:
+    print(f"[hybrid] 文件名召回失败:{exc}")
+    return []
+  picked=[d for d in hits if str(d.metadata.get("file_path","")).lower().endswith(name)]
+  print(f"[hybrid] 文件候选({name}):{[(d.metadata.get('file_path'),d.metadata.get('start_line')) for d in picked]}")
+  return picked[:8]
 
 def rrf_fuse(ranked_list:list[list],k:int=60)->list: 
     # list[list]是因为后面传入的两条路的检索结果都是列表,每个元素是一个Document对象
@@ -409,6 +435,12 @@ def hybrid_search(question:str,store,bm25:BM25Retriever,mode:str="full")->list:
     print ( f"[hybrid] kw候选: {[d.metadata.get( 'symbol' ) for d in kw_docs]} " )
     # 调试日志:打印kw阶段候选symbol,排查召回问题时使用
 
+    # 文件级召回:问题里点名了某个文件,就按文件名把该文件的块捞一路进来。
+    # 不点名文件时返回空,不产生额外开销
+    file_docs=_search_file_blocks(question,bm25)
+    _file_match=_FILE_RE.search(question)
+    file_name=_file_match.group(0).lower() if _file_match else None
+
     # 第三路(前置):逐字原文召回
     # 例如用户粘贴"提交新仓库需要先在右上角…"问这句话在哪:
     # 这类问题向量/BM25都不可靠,必须靠正文精确包含关系来保证召回
@@ -460,7 +492,7 @@ def hybrid_search(question:str,store,bm25:BM25Retriever,mode:str="full")->list:
     print(f"[hybrid] exact候选:{[d.metadata.get('symbol') for d in exact_docs]}")
     # 调试日志:确认到底捞到了哪些定义块
 
-    fused=rrf_fuse([vec_docs,kw_docs,exact_docs,exact_bm25,exact_text_docs,ui_docs,def_docs])
+    fused=rrf_fuse([vec_docs,kw_docs,exact_docs,exact_bm25,exact_text_docs,ui_docs,def_docs,file_docs])
     # 两路列表丢进RRF融合函数,对应list[list]的传参格式,进行融合去重+按融合分排序
     if not fused: # 两路都没捞到,直接返回空,不拿空列表去调重排接口 return []
         return []
@@ -470,10 +502,14 @@ def hybrid_search(question:str,store,bm25:BM25Retriever,mode:str="full")->list:
     boosted=[] # 存储额外加分的文档
     for doc,score in fused: # 遍历融合后的文档列表
       symbol=doc.metadata.get('symbol','') # 从文档元数据中提取symbol,默认值为空字符串
+      path=str(doc.metadata.get('file_path','')).lower()
       # 定义块优先:symbol 就是"该标识符的定义"时加更多分。
       # 兼容两种索引格式:裸符号名("request (large)")和签名首行("def request(")。
       if any(_is_def_of(symbol,idf) for idf in identifiers if len(idf)>2):
         boosted.append((doc,score+2.0)) # 定义本体,最高优先级
+      elif file_name and path.endswith(file_name):
+        # 问题点名了这个文件:该文件内的块优先于"引用它的地方"
+        boosted.append((doc,score+2.0))
       elif any(idf.lower() in symbol.lower() for idf in identifiers if len(idf)>2):
         # len(idf)>2 表示只考虑长度大于2的标识符,避免匹配到单字符的标识符(如in,of等)
         boosted.append((doc,score+1.0)) # 只是名字里含标识符,次优先级
@@ -583,6 +619,35 @@ def hybrid_search(question:str,store,bm25:BM25Retriever,mode:str="full")->list:
       result=[d for d in result if (d.metadata.get("file_path",""),d.metadata.get("start_line")) not in pinned_keys]
       result=pinned+result
       print(f"[hybrid] 定义块置顶:{[(d.metadata.get('file_path'),d.metadata.get('start_line')) for d in pinned]}")
+
+    # 第四步补三:点名文件的块强制置顶
+    # "answer_guard.py 里有哪些函数"要的是文件内部,不是调用方;
+    # 只置顶 2 块:文件头 + 第一个定义,其余交给加成后的相关性排序
+    if file_docs:
+      pinned=file_docs[:2]
+      pinned_keys={(d.metadata.get("file_path",""),d.metadata.get("start_line")) for d in pinned}
+      result=[d for d in result if (d.metadata.get("file_path",""),d.metadata.get("start_line")) not in pinned_keys]
+      result=pinned+result
+      print(f"[hybrid] 文件块置顶:{[(d.metadata.get('file_path'),d.metadata.get('start_line')) for d in pinned]}")
+
+    # 第四步补四:常量定义块置顶
+    # 问题里点了 CANDIDATE_K 这类常量,但定义它的模块头块常常因为
+    # "函数体更像答案"被 rerank 压后,导致模型只答"取 CANDIDATE_K 条"却给不出数值。
+    const_docs=[]
+    if any(i.isupper() for i in ids):
+      for d in candidates:
+        content=d.page_content or ""
+        if any(
+          re.search(rf"^[ \t]*{re.escape(i)}\s*=",content,re.MULTILINE)
+          for i in ids if i.isupper()
+        ):
+          const_docs.append(d)
+    if const_docs:
+      pinned=const_docs[:1]
+      pinned_keys={(d.metadata.get("file_path",""),d.metadata.get("start_line")) for d in pinned}
+      result=[d for d in result if (d.metadata.get("file_path",""),d.metadata.get("start_line")) not in pinned_keys]
+      result=pinned+result
+      print(f"[hybrid] 常量块置顶:{[(d.metadata.get('file_path'),d.metadata.get('start_line')) for d in pinned]}")
 
     # ---- 第五步:去重后截断 ----
     final=[]

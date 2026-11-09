@@ -2,7 +2,12 @@
 
 from types import SimpleNamespace
 
-from app.rag.answer_guard import extract_symbol, has_definition, not_found_answer
+from app.rag.answer_guard import (
+    extract_symbol,
+    has_definition,
+    not_found_answer,
+    sticky_refusal,
+)
 
 
 def _doc(symbol, content):
@@ -80,3 +85,31 @@ def test_not_found_answer_is_none_when_definition_exists():
 
 def test_not_found_answer_is_none_for_non_location_question():
     assert not_found_answer("request 怎么发 POST 请求?", []) is None
+
+
+# 上一轮已拒答过 quantum_router,追问用"它"指代
+_REFUSED_HISTORY = [
+    {"role": "user", "content": "quantum_router 在哪个文件定义？"},
+    {"role": "assistant", "content": "当前仓库中没有找到 `quantum_router` 的定义。\n\n已检索 6 个代码块。"},
+]
+
+
+def test_sticky_refusal_keeps_refusing_on_pronoun_followup():
+    """守卫只认定位句式,追问问"它有几个参数"时不能放行去编答案。"""
+    answer = sticky_refusal("它接收几个参数？", _REFUSED_HISTORY, [_doc(None, "# 无关代码")])
+    assert answer is not None
+    assert "quantum_router" in answer
+
+
+def test_sticky_refusal_allows_when_definition_is_found():
+    """换问法后真的召回到定义,就应该交给正常流程回答。"""
+    docs = [_doc("quantum_router", "def quantum_router(x):\n    pass")]
+    assert sticky_refusal("它接收几个参数？", _REFUSED_HISTORY, docs) is None
+
+
+def test_sticky_refusal_ignores_unrelated_topic():
+    assert sticky_refusal("缓存过期时间是多少？", _REFUSED_HISTORY, []) is None
+
+
+def test_sticky_refusal_without_history_returns_none():
+    assert sticky_refusal("它接收几个参数？", [], []) is None
