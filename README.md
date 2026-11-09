@@ -32,7 +32,7 @@
 1. **按语法树切分，不按字数切**：tree-sitter 以函数/类为边界切块，保留 `file_path` / `start_line` / `symbol`，检索出来的是完整可用的代码，而不是半截函数。
 2. **多路召回 + RRF 融合**：向量（bge-m3）+ BM25 + 符号精确匹配 + 逐字原文召回，自写 RRF 只按排名融合、规避量纲不一致，再用 bge-reranker 精排。
 3. **成本与边界可控**：访客每日配额、演示模式限 4 块上下文 / 320 输出 token、BYOK 域名白名单、rerank 失败自动降级为 RRF 顺序；定位类问题（"X 在哪定义"）先校验检索块里有没有真正的 `def X` / `class X`，没有就直接回答"当前仓库中没有找到 X 的定义"，不让 LLM 拿无关代码编解释。
-4. **多轮上下文**：前端只带最近 3 轮问答，后端按 `history_max_messages` / `history_max_chars` 硬约束裁剪后注入 prompt；追问（"它""那 X 呢"）可开启查询改写（`ENABLE_QUERY_REWRITE=true`，默认关闭），改写只作用于检索，超时或失败回退原问题。10 组指代型追问实测：不改写 Recall@6 40%、MRR 0.183，改写后 **100% / 0.858**（人工改写上限 1.000）；单轮问题 0/30 触发，历史注入仅增加 7–10 个 prompt token。详见 [docs/EVALUATION.md](docs/EVALUATION.md)。
+4. **多轮上下文**：前端只带最近 3 轮问答，后端按 `history_max_messages` / `history_max_chars` 硬约束裁剪后注入 prompt；追问（"它""那 X 呢"）默认开启查询改写（`ENABLE_QUERY_REWRITE`），规则前置判断——含指代词/序数回指/追问前缀才触发，首轮与独立问题零成本；改写提示词强制把指代替换为历史中的具体名称、序数回指只补全所属文件，残留指代自动重改一次，超时或失败回退原问题。已拒答的不存在符号由 `sticky_refusal` 兜底，换句式追问也不会编造。10 组指代型追问实测：不改写 Recall@6 40%、MRR 0.183，改写后 **100% / 0.858**（人工改写上限 1.000）；单轮问题 0/30 触发，历史注入仅增加 7–10 个 prompt token；线上 29 轮追问回归全部通过。详见 [docs/EVALUATION.md](docs/EVALUATION.md)。
 
 ```mermaid
 flowchart LR
@@ -99,4 +99,4 @@ repotalk/
 - 管理员为单账号密码模式，无多用户 / RBAC
 - 当前单实例部署（BM25 索引在进程内存，`--workers 1`）
 - 公网为 HTTP + IP（域名备案未通过），BYOK 功能因此默认关闭
-- 单元测试与 CI 已接入（52 个纯单测函数 / 10 个测试文件：ruff + pytest + 前端构建）；检索评测以脚本形式可复现
+- 单元测试与 CI 已接入（78 个纯单测用例 / 12 个测试文件：ruff + pytest + 前端构建）；检索评测以脚本形式可复现

@@ -66,6 +66,15 @@ def _is_def_of(symbol:str,ident:str)->bool:
   # 签名首行命中:startswith 传元组=命中任意一个前缀即 True
   # class 后一定跟左括号(继承或空参数),所以 "class Session(" 能覆盖 "class Session(SessionRedirectMixin):"
 
+def _const_pattern(name:str)->str:
+  """常量定义的正则,允许名字前缀。
+
+  为什么不能只匹配"NAME=":用户追问时常写缩写 TTL,
+  代码里定义的是 CACHE_TTL=10*60,精确匹配会漏掉,
+  导致模型只知道"有 TTL"却拿不到 600 这个数值。
+  """
+  return rf"^[ \t]*[A-Za-z_]*{re.escape(name)}\s*="
+
 def _search_file_blocks(question:str,bm25:BM25Retriever)->list:
   """按问题里点名的文件名召回该文件的块。
 
@@ -638,7 +647,7 @@ def hybrid_search(question:str,store,bm25:BM25Retriever,mode:str="full")->list:
       for d in candidates:
         content=d.page_content or ""
         if any(
-          re.search(rf"^[ \t]*{re.escape(i)}\s*=",content,re.MULTILINE)
+          re.search(_const_pattern(i),content,re.MULTILINE)
           for i in ids if i.isupper()
         ):
           const_docs.append(d)
@@ -648,6 +657,58 @@ def hybrid_search(question:str,store,bm25:BM25Retriever,mode:str="full")->list:
       result=[d for d in result if (d.metadata.get("file_path",""),d.metadata.get("start_line")) not in pinned_keys]
       result=pinned+result
       print(f"[hybrid] 常量块置顶:{[(d.metadata.get('file_path'),d.metadata.get('start_line')) for d in pinned]}")
+
+    # 第四步补六:整文件型问题改为文件内取块
+    # "answer_guard.py 里有哪些函数""最后一个函数返回什么"要的是文件内全貌,
+    # 只置顶一两块不够:模型看不到函数顺序,会把别的文件的块当成"最后一个"。
+    # 这里直接按 start_line 顺序取该文件的块(头 5 块 + 末块),不放其他文件进来,
+    # 文件块少于 3 个时退回常规流程,避免上下文过窄
+    _SCOPE_WORDS=("有哪些函数","几个函数","最后一个","最后那个","整个文件","文件里","全文")
+    if file_name and any(word in question for word in _SCOPE_WORDS):
+      all_docs=getattr(bm25,"docs",[])
+      same_file=sorted(
+        [d for d in all_docs if str(d.metadata.get("file_path","")).lower().endswith(file_name)],
+        key=lambda d:int(d.metadata.get("start_line") or 0),
+      )
+      if len(same_file)>=3:
+        scoped=same_file[:5]
+        if same_file[-1] not in scoped:
+          scoped=scoped+[same_file[-1]]
+        result=scoped
+        print(f"[hybrid] 整文件取块({file_name}):{[d.metadata.get('start_line') for d in scoped]}")
+
+    # 第四步补五:常量数值回补
+    # "候选池每路取多少条"这类问题,检索命中的是函数体,
+    # 函数体只写 k=CANDIDATE_K,真正定义 80 的块在模块头。
+    # 候选块里引用了哪些全大写常量,就按常量名把定义块捞回来置顶,
+    # 否则模型只能答"取了 CANDIDATE_K 条",给不出数值。
+    _NUM_WORDS=("多少","几","默认","上限","阈值","多大","几条")
+    if any(word in question for word in _NUM_WORDS):
+      const_refs=[]
+      for d in candidates[:8]:
+        for name in re.findall(r"\b[A-Z][A-Z0-9_]{2,}\b",d.page_content or ""):
+          if name not in const_refs:
+            const_refs.append(name)
+      # 直接遍历全部块找"常量=值"的赋值块,而不是走 BM25 top-k:
+      # 一个常量名往往在十几处被引用,定义块按词频排不进前几,
+      # 遍历内存里的块列表(O(总数))比调检索更稳,成本也可忽略
+      all_docs=getattr(bm25,"docs",[])
+      # 问题里点名过的常量优先(如 TTL),其余按候选出现顺序补位
+      ordered=[n for n in const_refs if n.lower() in question.lower()]
+      ordered+=[n for n in const_refs if n.lower() not in question.lower()]
+      for name in ordered[:5]:
+        # 只认"= 数字"的定义:问"多少/几条"要的是数值,
+        # 字符串型配置(API_KEY="sk-...")即使命中也没有信息量,反而挤掉真答案
+        found=[d for d in all_docs
+               if re.search(rf"^[ \t]*[A-Za-z_]*{re.escape(name)}\s*=\s*[0-9]",
+                            d.page_content or "",re.MULTILINE)]
+        if found:
+          target=found[0]
+          result=[d for d in result if (d.metadata.get("file_path"),d.metadata.get("start_line"))
+                  !=(target.metadata.get("file_path"),target.metadata.get("start_line"))]
+          result=[target]+result
+          print(f"[hybrid] 常量回补置顶:{name} @ {target.metadata.get('file_path')}:{target.metadata.get('start_line')}")
+          break
 
     # ---- 第五步:去重后截断 ----
     final=[]

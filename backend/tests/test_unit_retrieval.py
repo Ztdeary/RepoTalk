@@ -1,9 +1,11 @@
-"""检索层纯逻辑:分词、RRF 融合、符号定义判定。"""
+"""检索层纯逻辑:分词、RRF 融合、符号定义判定、常量定义匹配。"""
+
+import re
 
 import pytest
 from langchain_core.documents import Document
 
-from app.rag.hybrid_retriever import _is_def_of, _tokenize, rrf_fuse
+from app.rag.hybrid_retriever import _const_pattern, _is_def_of, _tokenize, rrf_fuse
 
 
 def test_tokenize_splits_camel_case_and_lowercases():
@@ -47,3 +49,21 @@ def test_rrf_deduplicates_same_chunk():
 )
 def test_is_def_of_handles_both_symbol_formats(symbol, ident, expected):
     assert _is_def_of(symbol, ident) is expected
+
+
+@pytest.mark.parametrize(
+    "name,content,expected",
+    [
+        # 完整常量名:常规命中
+        ("CACHE_TTL", "CACHE_TTL=10*60", True),
+        # 追问里常写缩写 TTL,定义名是 CACHE_TTL——这是 E3 那个缺陷的原始场景
+        ("TTL", "CACHE_TTL=10*60", True),
+        ("TTL", "REDIS_TTL = 60", True),
+        # 只是被使用、没有赋值的行不算定义
+        ("TTL", "time.sleep(TTL)", False),
+        # 名字只是前缀相同、常量本身另一个,不能误命中
+        ("TTL", "CACHE_TTL_EXTRA=10", False),
+    ],
+)
+def test_const_pattern_matches_abbreviated_and_prefixed_names(name, content, expected):
+    assert bool(re.search(_const_pattern(name), content, re.MULTILINE)) is expected
