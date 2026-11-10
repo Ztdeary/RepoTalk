@@ -15,7 +15,7 @@ class RepoStatus:
     # 为什么不直接用字符串字面量？防止拼错
     PENDING="pending" # 已提交，还没开工
     CLONING="cloning" # 正在git clone
-    SPLITTING="splitting" # 正在AST切分
+    SPLITTING="splitting" # 正在CST切分
     EMBEDDING="embedding" # 正在向量化并写入pgvector
     DONE="done" # 全部完成，可以问答了
     FAILED="failed" # 中途失败，失败原因写进error字段

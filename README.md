@@ -30,7 +30,7 @@
 ## 怎么做出来的
 
 1. **按语法树切分，不按字数切**：tree-sitter 以函数/类为边界切块，保留 `file_path` / `start_line` / `symbol`，检索出来的是完整可用的代码，而不是半截函数。
-2. **多路召回 + RRF 融合**：向量（bge-m3）+ BM25 + 符号精确匹配 + 逐字原文召回，自写 RRF 只按排名融合、规避量纲不一致，再用 bge-reranker 精排。
+2. **多路召回 + RRF 融合**：向量（bge-m3）+ BM25 + 符号精确 + 符号 BM25 补强 + 逐字原文 + 界面元素 + 定义精确 + 文件名路由共八路召回，自写 RRF 只按排名融合、规避量纲不一致，再用 bge-reranker 精排；融合后另有常量块回补（问"默认值/上限是多少"时把 `CACHE_TTL=10*60` 这类定义块提到最前）。
 3. **成本与边界可控**：访客每日配额、演示模式限 4 块上下文 / 320 输出 token、BYOK 域名白名单、rerank 失败自动降级为 RRF 顺序；定位类问题（"X 在哪定义"）先校验检索块里有没有真正的 `def X` / `class X`，没有就直接回答"当前仓库中没有找到 X 的定义"，不让 LLM 拿无关代码编解释。
 4. **多轮上下文**：前端只带最近 3 轮问答，后端按 `history_max_messages` / `history_max_chars` 硬约束裁剪后注入 prompt；追问（"它""那 X 呢"）默认开启查询改写（`ENABLE_QUERY_REWRITE`），规则前置判断——含指代词/序数回指/追问前缀才触发，首轮与独立问题零成本；改写提示词强制把指代替换为历史中的具体名称、序数回指只补全所属文件，残留指代自动重改一次，超时或失败回退原问题。已拒答的不存在符号由 `sticky_refusal` 兜底，换句式追问也不会编造。10 组指代型追问实测：不改写 Recall@6 40%、MRR 0.183，改写后 **100% / 0.858**（人工改写上限 1.000）；单轮问题 0/30 触发，历史注入仅增加 7–10 个 prompt token；线上 29 轮追问回归全部通过。详见 [docs/EVALUATION.md](docs/EVALUATION.md)。
 
@@ -48,7 +48,7 @@ flowchart LR
     L --> O["SSE: sources → token... → done"]
 ```
 
-录入是异步链路：`POST /repos` → Redis 队列 → arq worker（浅克隆 → AST 切分 → 向量化入 pgvector → BM25 原料入 Redis）→ 前端订阅进度。
+录入是异步链路：`POST /repos` → Redis 队列 → arq worker（浅克隆 → CST 切分 → 向量化入 pgvector → BM25 原料入 Redis）→ 前端订阅进度。
 
 ## 技术栈
 
@@ -78,7 +78,7 @@ repotalk/
 ├── backend/app/
 │   ├── api/        # 路由：repos / chat / auth / demo
 │   ├── core/       # 配置、DB、缓存、配额、安全
-│   ├── rag/        # AST 切分、混合检索、prompt 与生成
+│   ├── rag/        # CST 切分、混合检索、prompt 与生成
 │   ├── workers/    # arq 异步解析
 │   └── main.py
 ├── backend/tests/  # 评测脚本、指标库、数据集

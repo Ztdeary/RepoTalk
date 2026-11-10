@@ -18,7 +18,7 @@
 
 给定一个开源仓库，你可以直接问"这个项目的鉴权逻辑在哪""XX 函数到底在干什么"，Agent 会检索相关代码片段并**只基于这些片段**回答，同时返回命中的原始片段作为引用来源。
 
-和普通文档问答的区别在切分方式：不按字数硬切，而是按**语法树（AST）**以函数 / 类为单位切块，并保留 `file_path` / `start_line` / `symbol` 元数据。这样检索出来的是完整可用的代码，而不是被拦腰截断的半截函数。
+和普通文档问答的区别在切分方式：不按字数硬切，而是按**具体语法树（CST）**以函数 / 类为单位切块，并保留 `file_path` / `start_line` / `symbol` 元数据。这样检索出来的是完整可用的代码，而不是被拦腰截断的半截函数。
 
 ### 数据流
 
@@ -31,7 +31,7 @@ flowchart TD
     B --> D{{"Redis 队列"}}
     D --> E["arq worker<br/>（独立容器，独立进程）"]
     E --> E1["git clone --depth 1<br/>浅克隆目标仓库"]
-    E1 --> E2["tree-sitter AST 切分<br/>按函数 / 类边界切块<br/>保留 file_path / start_line / symbol"]
+    E1 --> E2["tree-sitter CST 切分<br/>按函数 / 类边界切块<br/>保留 file_path / start_line / symbol"]
     E2 --> E3["bge-m3 向量化<br/>写入 PostgreSQL pgvector"]
     E2 --> E4["构建 BM25 索引原料<br/>JSON 序列化写入 Redis<br/>key=bm25:{collection}, TTL=7天"]
 
@@ -114,7 +114,7 @@ flowchart TD
 | --- | --- | --- |
 | W0 | 环境搭建 + FastAPI 骨架 | 已完成 |
 | W1 | 最小 RAG 闭环（纯文本） | 已完成 |
-| W2 | 代码级切分（tree-sitter AST + 元数据） | 已完成 |
+| W2 | 代码级切分（tree-sitter CST + 元数据） | 已完成 |
 | W3 | 混合检索（向量 + BM25 + 自写 RRF）+ 重排 | 已完成 |
 | W4 | arq 异步解析 + JWT + Redis 缓存 + SSE 进度推送 | 已完成 |
 | W5 | 前端工作台（Vite + React-TS） | 已完成 |
@@ -471,7 +471,7 @@ $env:UV_CACHE_DIR="d:\RepoTalk开源仓库代码问答Agent项目\.uv-cache"
 ### ❌ 未完成的 Week 6 收尾项
 - [ ] 域名 + HTTPS（`repotalk.top` 已购买并解析到该 IP，但个人主体备案被驳回：个人名义不能提供任何人可访问的服务，暂不启用，演示改用 IP）
 - [ ] 演示 GIF / 视频（60 秒：登录 → 提交仓库 → 看进度 → 提问 → 流式出答案 → 点引用跳转）
-- [ ] 简历 3 条 STAR bullet（参考模板：「基于 AST 切分 + BM25/向量混合检索 + RRF 融合 + Rerank 精排，将代码问答的 context_recall 从 18.9% 提升到 92.2%（平均 +52pt）」）
+- [ ] 简历 3 条 STAR bullet（参考模板：「基于 CST 切分 + BM25/向量混合检索 + RRF 融合 + Rerank 精排，将代码问答的 context_recall 从 18.9% 提升到 92.2%（平均 +52pt）」）
 - [ ] 白板 20 分钟技术讲解准备（面试终极验收）
 
 ### 🔧 评测调优（已完成 ✅）

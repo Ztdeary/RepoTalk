@@ -73,10 +73,13 @@ def split_code_file(path:Path,repo_name:str,root:Path,max_chars:int=1200)->list[
   if not grammar_ok:
     return _simple_split(text, lang_name, repo_name, path.relative_to(root))
 
-  # 3.解析AST 
-  """AST是语法树的缩写,是代码的抽象表示
-  它包含了代码的所有语法节点，包括函数、类、方法等
-  解析器会根据tree-sitter的语言包,将源码解析成AST
+  # 3.解析成 CST(具体语法树)
+  """tree-sitter 产出的是 CST 而不是 AST。
+  CST 保留全部 token:注释、缩进、括号、空行都在,
+  每个节点还带精确的字节区间与行列位置。
+  这样才能用 node.text 直接切出"原文的连续子串",
+  切出来的块不丢字符,给 LLM 看的就是真实代码。
+  若用 Python ast 那种 AST,注释和格式会被抽象掉,原文就还原不回来了。
   """
   parser=get_parser(lang_name) #创建对应语言的解析器实例
   tree=parser.parse(text.encode()) 
@@ -87,11 +90,11 @@ def split_code_file(path:Path,repo_name:str,root:Path,max_chars:int=1200)->list[
   # 获取当前语言的可独立切分单元的语法节点类型
   # 如果语言名不存在，则返回空集合
 
-  # 4.递归遍历AST,收集函数/类节点的函数
+  # 4.递归遍历CST,收集函数/类节点
   def collect(node):
     # 如果目标是函数/类节点
     if node.type in splittable_types:
-      # 从AST提取真实名称（非正则猜测）
+      # 从CST提取真实名称（非正则猜测）
       name_node=node.child_by_field_name("name") 
       # 通过child_by_field_name(“name”)获取子节点名称
       # 不用正则表达式是因为async def抓不到
@@ -128,7 +131,7 @@ def split_code_file(path:Path,repo_name:str,root:Path,max_chars:int=1200)->list[
     for child in node.children:
       collect(child)
 
-  collect(tree.root_node) # 正式开始递归遍历AST，收集函数/类节点
+  collect(tree.root_node) # 正式开始递归遍历CST，收集函数/类节点
 
   # 5.提取模块级代码（import、全局变量等）
   # 遍历顶层节点，把连续的"非函数/类"节点合并成块
@@ -168,7 +171,7 @@ def split_code_file(path:Path,repo_name:str,root:Path,max_chars:int=1200)->list[
   
 # 定义合并模块级代码节点列表的函数
 def merge_module_nodes(nodes:list,rel_path:Path,repo_name:str,lang_name:str)->dict:
-  """把连续的模块级AST节点合并成一个块"""
+  """把连续的模块级CST节点合并成一个块"""
   start_line=nodes[0].start_point[0]+1 # 从第一个节点的起始行号开始
   end_line=nodes[-1].end_point[0]+1 # 从最后一个节点的结束行号开始
   content="\n".join(n.text.decode() for n in nodes)

@@ -51,7 +51,7 @@ def _tokenize(text:str)->list[str]:
 # rrf_fuse融合函数
 def _is_def_of(symbol:str,ident:str)->bool:
   """判断 symbol 是否是 ident 的定义块,兼容两种索引格式。
-  - AST 切分产出的裸符号名: "request" / "Session (large)"
+  - CST 切分产出的裸符号名: "request" / "Session (large)"
   - 无 grammar 时的简单分割: "def request(" / "class Session(SessionRedirectMixin):"
   为什么要兼容?服务器缺 tree-sitter 语法包时会退化成简单分割, symbol 变成签名首行,
   此时按 symbol == "request" 过滤一条都查不到,精确召回会静默失效。
@@ -133,7 +133,7 @@ def rrf_fuse(ranked_list:list[list],k:int=60)->list:
 
 # build_bm25建BM25索引
 def build_bm25(chunks:list[dict])->BM25Retriever:
-    """用AST切分产物(content+metadata字典列表)在内存里建BM25索引。
+    """用CST切分产物(content+metadata字典列表)在内存里建BM25索引。
     把symbol拼进索引文本,让BM25能匹配到类名/函数名本身。"""
     bm25=BM25Retriever.from_texts(
       # BM25Retriever类的from_texts方法,用于从文本列表构建BM25索引
@@ -145,7 +145,7 @@ def build_bm25(chunks:list[dict])->BM25Retriever:
       preprocess_func=_tokenize, 
       # 告诉BM25Retriever使用_tokenize分词器,因为BM25默认是空格分词
     )
-    bm25.k=CANDIDATE_K # 默认只返回4条,改成CANDIDATE_K(当前50条)
+    bm25.k=CANDIDATE_K # 默认只返回4条,改成CANDIDATE_K(当前80条)
     return bm25
     # 返回BM25Retriever对象,用于后续检索
 
@@ -160,9 +160,9 @@ def rerank(query:str,docs:list,top_n=RERANK_TOP_N)->list:
     但两者都只是"粗排"——真正判定"哪个块最能回答这个问题"还得让Cross-Encoder重排模型来做。
     它把query和每个文档拼成一对,逐对打分,精度远高于双塔的向量相似度。
     
-    截断策略:每个文档只送前1400字符(注释里之前写1500是笔误,代码以1400为准)。
+    截断策略:每个文档只送前2000字符。
     为什么要截断?rerank API按token数计费,且单次请求有上限。
-    一个代码块动辄几千上万字符,全送进去既慢又贵,前1400字符通常已包含函数签名和核心逻辑,足够重排模型判断相关性。
+    一个代码块动辄几千上万字符,全送进去既慢又贵,前2000字符通常已包含函数签名和核心逻辑,足够重排模型判断相关性。
     
     降级兜底:重排失败(HTTP错误/超时)时回退到RRF融合顺序取前top_n,保证问答链路不崩。
     为什么降级用RRF顺序?RRF融合已经把两路排序的信息都综合了,是"没rerank情况下能拿到的最好排序"。"""
@@ -182,7 +182,7 @@ def rerank(query:str,docs:list,top_n=RERANK_TOP_N)->list:
         "model":settings.rerank_model, # 重排序模型名,从.env读,默认是BAAI/bge-reranker-v2-m3
         "query":query, # 用户的原始问题,重排模型会拿它和每个文档配对打分
         "documents":[
-          # 关键:给每个文档拼一个元数据前缀,格式="[文件: xxx 符号: yyy]\n 正文前1400字"
+          # 关键:给每个文档拼一个元数据前缀,格式="[文件: xxx 符号: yyy]\n 正文前2000字"
           # 为什么要拼?纯正文LLM看不到"这个块来自哪个文件、是什么函数",可能把测试桩当成真实实现
           # 截断[:2000]:控制token消耗,代码块前2000字符通常已包含函数签名和核心逻辑
           f"[文件: {d.metadata.get('file_path')} 符号: {d.metadata.get('symbol')}]\n{d.page_content[:2000]}"
@@ -435,8 +435,10 @@ def hybrid_search(question:str,store,bm25:BM25Retriever,mode:str="full")->list:
         return store.similarity_search(question,k=RERANK_TOP_N)
     # store是向量数据库,用于存储和检索向量
     # bm25是BM25索引,用于快速检索相关文档
+    # 第一路:向量召回
     vec_docs=store.similarity_search(question,k=CANDIDATE_K)
     # store.similarity_search()方法->pgvector按距离从小到大返回与之最相似的CANDIDATE_K条向量
+    # 第二路:BM25 关键词召回
     kw_docs=bm25.invoke(question)
     # bm25.invoke()方法->按BM25分从高到低返回，同样是排好序的。
     print ( f"[hybrid] vec候选: {[d.metadata.get( 'symbol' ) for d in vec_docs]} " ) 
@@ -444,29 +446,30 @@ def hybrid_search(question:str,store,bm25:BM25Retriever,mode:str="full")->list:
     print ( f"[hybrid] kw候选: {[d.metadata.get( 'symbol' ) for d in kw_docs]} " )
     # 调试日志:打印kw阶段候选symbol,排查召回问题时使用
 
-    # 文件级召回:问题里点名了某个文件,就按文件名把该文件的块捞一路进来。
+    # 第八路(前置):文件名路由召回
+    # 问题里点名了某个文件,就按文件名把该文件的块捞一路进来。
     # 不点名文件时返回空,不产生额外开销
     file_docs=_search_file_blocks(question,bm25)
     _file_match=_FILE_RE.search(question)
     file_name=_file_match.group(0).lower() if _file_match else None
 
-    # 第三路(前置):逐字原文召回
+    # 第五路(前置):逐字原文召回
     # 例如用户粘贴"提交新仓库需要先在右上角…"问这句话在哪:
     # 这类问题向量/BM25都不可靠,必须靠正文精确包含关系来保证召回
     exact_text_docs=_search_literal_text(question,getattr(store,"collection_name",""))
     print(f"[hybrid] 逐字候选:{[(d.metadata.get('file_path'),d.metadata.get('start_line')) for d in exact_text_docs]}")
 
-    # 第四路(前置):界面元素召回
+    # 第六路(前置):界面元素召回
     # 用户问"某个按钮/弹窗/页面在哪"时,按问题实词在前端 JSX 块里挑候选;
     # 不问界面元素时该路返回空,不产生额外开销
     ui_docs=_search_ui_blocks(question,getattr(store,"collection_name",""))
 
-    # 第五路(前置):符号定义精确召回
+    # 第七路(前置):符号定义精确召回
     # "X 在哪定义"这类问题必须看到定义块本身,否则模型只能答"哪里用到了 X"
     def_docs=_search_definition(question,getattr(store,"collection_name",""))
 
-    # 第三路:符号精确召回
-    # 解决"高频词"问题:command 在tests里出现上百次,IDF被稀释,定义块进不了前50
+    # 第三路:符号精确召回(按 symbol 字段过滤)
+    # 解决"高频词"问题:command 在tests里出现上百次,IDF被稀释,定义块进不了前80
     # 做法:从query里抽标识符,直接按symbol字段过滤查库,绕开打分
     ids=[i for i in _IDENT_RE.findall(question) if len(i)>=3]
     # 从问题中提取长度>=3的标识符(短词如in/of无意义)
@@ -475,7 +478,7 @@ def hybrid_search(question:str,store,bm25:BM25Retriever,mode:str="full")->list:
     ids=[i for i in dict.fromkeys(ids) if i.lower() not in stop][:3]
     # dict.fromkeys()去重,最多取3个,控制embedding调用次数
 
-    # 第三路补强:用标识符单独跑一次BM25。
+    # 第四路补强:用标识符单独跑一次BM25。
     # 为什么需要?symbol过滤只对"裸符号名"有效;若索引是简单分割产出的
     # (symbol 形如 "def request("),filter={"symbol":"request"} 一条都匹配不到。
     # BM25索引文本里拼了 symbol,所以用标识符单独检索能捞回这类定义块。
@@ -575,7 +578,7 @@ def hybrid_search(question:str,store,bm25:BM25Retriever,mode:str="full")->list:
       # x:入参,可能是"Session",也可能是"Session (large)",也可能是None
       return str(x).replace("(large)","").strip().lower()
       # str(x):元数据里的symbol可能是None,match对象也不是字符串,统一转成str防报错
-      # .replace("(large)",""):AST切分时超长块会在symbol后加" (large)"后缀,
+      # .replace("(large)",""):CST切分时超长块会在symbol后加" (large)"后缀,
       #                          去掉它,才能和query里抽出来的纯标识符对齐
       # .strip():replace后会残留一个空格("Session (large)"->"Session "),去掉首尾空白
       # .lower():再统一小写,保证"Session"和"session"视为同一个符号
@@ -586,7 +589,7 @@ def hybrid_search(question:str,store,bm25:BM25Retriever,mode:str="full")->list:
       symbol=d.metadata.get("symbol","")
       return _sym(symbol) in exact_syms or any(_is_def_of(symbol,i) for i in exact_syms)
       # 前半段兼容裸符号名("request"),后半段兼容签名首行("def request(")
-      # d.metadata:Document的元数据字典,由AST切分时写入(file_path/start_line/end_line/symbol)
+      # d.metadata:Document的元数据字典,由CST切分时写入(file_path/start_line/end_line/symbol)
       # d.metadata.get("symbol",""):取symbol,取不到就给空字符串(用[]会抛KeyError)
       # ... in exact_syms:集合成员判断,命中返回True
       # 返回值:True=这条块是{request/Session/...}之一的定义,必须优先保留
@@ -750,7 +753,7 @@ _bm25_redis_client=_redis.from_url(
 )
 
 def _build_bm25_from_chunks ( chunks: list [ dict ] ) -> BM25Retriever: 
-  """从AST切分的raw chunks字典列表重建BM25Retriever。
+  """从CST切分的raw chunks字典列表重建BM25Retriever。
     和顶部的build_bm25逻辑完全一样,单独抽出来是为了复用。""" 
   return BM25Retriever.from_texts(
         texts=[f"{c['metadata']['symbol']} {c['content']}" for c in chunks],
@@ -785,8 +788,8 @@ def _bm25_cache_hit(collection:str)->BM25Retriever|None:
     chunks=json.loads(raw)
       # json.loads():把JSON字符串还原成Python对象（list/dict）
     bm25=_build_bm25_from_chunks(chunks)
-    # 从AST切分的raw chunks字典列表重建BM25Retriever
-    bm25.k=CANDIDATE_K # 设置候选文档数量为CANDIDATE_K（当前50条）
+    # 从CST切分的raw chunks字典列表重建BM25Retriever
+    bm25.k=CANDIDATE_K # 设置候选文档数量为CANDIDATE_K（当前80条）
 
     # 回填内存缓存:下次同collection的查询直接走第1级
     _bm25_memory[collection]=bm25
